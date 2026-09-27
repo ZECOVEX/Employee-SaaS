@@ -7,6 +7,7 @@ use App\Models\LeaveRequest;
 use App\Models\LeaveType;
 use App\Services\LeaveService;
 use App\Services\WorkforceDefaults;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\CreatesOrganizations;
 use Tests\TestCase;
@@ -16,202 +17,259 @@ class LeaveTest extends TestCase
     use CreatesOrganizations;
     use RefreshDatabase;
 
-    private function bootLeave($org): array
+    /**
+     * @return array{0: \App\Models\Employee, 1: LeaveType, 2: \App\Models\User}
+     */
+    private function bootLeave(array $ctx, string $employeeName = 'Employee User'): array
     {
-        WorkforceDefaults::apply($org);
+        app(WorkforceDefaults::class)->apply($ctx['organization']);
 
-        $employee = $this->makeEmployee($org, 'EMP-L1', 'leave1@test.com');
+        $user = $this->makeUser($ctx['organization'], 'employee', $ctx['roles'], ['name' => $employeeName]);
+        $employee = $this->makeEmployee($ctx['organization'], $user, 'EMP-L1');
+
         $leaveType = LeaveType::withoutGlobalScopes()
-            ->where('organization_id', $org->id)
+            ->where('organization_id', $ctx['organization']->id)
             ->where('code', 'ANNUAL')
             ->firstOrFail();
 
-        return [$employee, $leaveType];
+        app(LeaveService::class)->ensureBalances($employee);
+
+        return [$employee, $leaveType, $user];
     }
 
-    public function test_owner_can_request_leave_and_balance_is_reserved(): void
+    private function makePendingRequest(array $ctx, $employee, LeaveType $type, int $days, Carbon $start): LeaveRequest
     {
-        $org = $this->makeOrganization('LeaveCo1');
-        $owner = $org->users()->where('email', $this->ownerEmail())->firstOrFail();
-        $owner->syncRoles(['owner']);
+        $request = new LeaveRequest([
+            'start_date' => $start->toDateString(),
+            'end_date' => $start->copy()->addDays($days - 1)->toDateString(),
+            'days' => $days,
+            'reason' => 'Trip',
+            'status' => LeaveRequest::PENDING,
+        ]);
+        $request->organization()->associate($ctx['organization']);
+        $request->employee()->associate($employee);
+        $request->leaveType()->associate($type);
+        $request->save();
 
-        $this->actingAs($owner)
+        return $request;
+    }
+
+    public function test_employee_can_request_leave_with_weekday_count(): void
+    {
+        $ctx = $this->makeOrganization('LeaveCo1');
+        app(WorkforceDefaults::class)->apply($ctx['organization']);
+        $user = $this->makeUser($ctx['organization'], 'employee', $ctx['roles']);
+        $this->makeEmployee($ctx['organization'], $user, 'EMP-L0');
+
+        $type = LeaveType::withoutGlobalScopes()
+            ->where('organization_id', $ctx['organization']->id)
+            ->where('code', 'ANNUAL')
+            ->firstOrFail();
+
+        $start = now()->addWeek()->startOfDay();
+        $end = $start->copy()->addDays(4);
+        $expectedDays = app(LeaveService::class)->workingDays($start, $end);
+
+        $this->actingAs($user)
             ->post(route('leave.store'), [
-                'leave_type_id' => LeaveType::withoutGlobalScopes()->where('organization_id', $org->id)->where('code', 'ANNUAL')->firstOrFail()->id,
-                'start_date' => now()->addWeek()->toDateString(),
-                'end_date' => now()->addWeek()->addDays(2)->toDateString(),
+                'leave_type_id' => $type->id,
+                'start_date' => $start->toDateString(),
+                'end_date' => $end->toDateString(),
                 'reason' => 'Vacation',
             ])
             ->assertRedirect(route('leave.index'));
 
         $this->assertDatabaseHas('leave_requests', [
-            'organization_id' => $org->id,
-            'status' => 'PENDING',
-            'days' => 3,
+            'organization_id' => $ctx['organization']->id,
+            'employee_id' => \App\Models\Employee::withoutGlobalScopes()
+                ->where('organization_id', $ctx['organization']->id)
+                ->firstOrFail()
+                ->id,
+            'status' => LeaveRequest::PENDING,
+            'days' => $expectedDays,
         ]);
     }
 
-    public function test_approve_deducts_balance_and_reject_blocks_insufficient_days(): void
+    public function test_store_rejects_range_exceeding_balance(): void
     {
-        $org = $this->makeOrganization('LeaveCo2');
-        $owner = $org->users()->where('email', $this->ownerEmail())->firstOrFail();
-        $owner->syncRoles(['owner']);
-        [$employee, $leaveType] = $this->bootLeave($org);
+        $ctx = $this->makeOrganization('LeaveCo1b');
+        [$employee, $type, $user] = $this->bootLeave($ctx);
+
+        // Shrink the balance so a two-week request no longer fits.
+        $balance = LeaveBalance::withoutGlobalScopes()
+            ->where('organization_id', $ctx['organization']->id)
+            ->where('employee_id', $employee->id)
+            ->where('leave_type_id', $type->id)
+            ->firstOrFail();
+        $balance->update(['total_days' => 2]);
+
+        $start = now()->addWeek()->startOfDay();
+
+        $this->actingAs($user)
+            ->post(route('leave.store'), [
+                'leave_type_id' => $type->id,
+                'start_date' => $start->toDateString(),
+                'end_date' => $start->copy()->addDays(9)->toDateString(),
+                'reason' => 'Too long',
+            ])
+            ->assertSessionHasErrors('leave_type_id');
+
+        $this->assertDatabaseMissing('leave_requests', [
+            'organization_id' => $ctx['organization']->id,
+            'status' => LeaveRequest::PENDING,
+            'reason' => 'Too long',
+        ]);
+    }
+
+    public function test_approve_deducts_balance_and_blocks_insufficient_days(): void
+    {
+        $ctx = $this->makeOrganization('LeaveCo2');
+        [$employee, $type] = $this->bootLeave($ctx);
+        $admin = $this->makeUser($ctx['organization'], 'company_admin', $ctx['roles']);
+        $this->actingAs($admin);
 
         $service = app(LeaveService::class);
 
         // Shrink balance to 1 day so a 5-day request is impossible.
         $balance = LeaveBalance::withoutGlobalScopes()
-            ->where('organization_id', $org->id)
+            ->where('organization_id', $ctx['organization']->id)
             ->where('employee_id', $employee->id)
-            ->where('leave_type_id', $leaveType->id)
+            ->where('leave_type_id', $type->id)
             ->firstOrFail();
         $balance->update(['total_days' => 1]);
 
-        $request = new LeaveRequest([
-            'start_date' => now()->addDays(2)->toDateString(),
-            'end_date' => now()->addDays(6)->toDateString(),
-            'days' => 5,
-            'reason' => 'Too long',
-            'status' => LeaveRequest::STATUS_PENDING,
-        ]);
-        $request->organization()->associate($org);
-        $request->employee()->associate($employee);
-        $request->leaveType()->associate($leaveType);
-        $request->save();
+        $request = $this->makePendingRequest($ctx, $employee, $type, 5, now()->addDays(2));
 
-        $this->assertFalse($service->approve($request, $owner));
-        $this->assertSame(LeaveRequest::STATUS_PENDING, $request->fresh()->status);
+        try {
+            $service->approve($request, $admin->id);
+            $this->fail('Expected RuntimeException for insufficient balance.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('Insufficient balance', $e->getMessage());
+        }
+
+        $this->assertSame(LeaveRequest::PENDING, $request->fresh()->status);
 
         // Shrink the request to fit within the 1-day balance.
         $request->update(['days' => 1, 'end_date' => $request->start_date->toDateString()]);
-        $this->assertTrue($service->approve($request, $owner));
-        $this->assertSame(LeaveRequest::STATUS_APPROVED, $request->fresh()->status);
+        $service->approve($request, $admin->id);
+
+        $this->assertSame(LeaveRequest::APPROVED, $request->fresh()->status);
 
         $balance->refresh();
+        $this->assertSame(1, $balance->used_days);
         $this->assertSame(0, $balance->remainingDays());
     }
 
     public function test_reject_keeps_balance_untouched(): void
     {
-        $org = $this->makeOrganization('LeaveCo3');
-        $owner = $org->users()->where('email', $this->ownerEmail())->firstOrFail();
-        $owner->syncRoles(['owner']);
-        [$employee, $leaveType] = $this->bootLeave($org);
+        $ctx = $this->makeOrganization('LeaveCo3');
+        [$employee, $type] = $this->bootLeave($ctx);
+        $admin = $this->makeUser($ctx['organization'], 'company_admin', $ctx['roles']);
+        $this->actingAs($admin);
 
         $service = app(LeaveService::class);
-        $request = new LeaveRequest([
-            'start_date' => now()->addDay()->toDateString(),
-            'end_date' => now()->addDay()->toDateString(),
-            'days' => 1,
-            'reason' => 'Sick day',
-            'status' => LeaveRequest::STATUS_PENDING,
-        ]);
-        $request->organization()->associate($org);
-        $request->employee()->associate($employee);
-        $request->leaveType()->associate($leaveType);
-        $request->save();
+        $request = $this->makePendingRequest($ctx, $employee, $type, 1, now()->addDay());
 
         $before = LeaveBalance::withoutGlobalScopes()
-            ->where('organization_id', $org->id)
+            ->where('organization_id', $ctx['organization']->id)
             ->where('employee_id', $employee->id)
-            ->where('leave_type_id', $leaveType->id)
-            ->firstOrFail()->remainingDays();
+            ->where('leave_type_id', $type->id)
+            ->firstOrFail();
 
-        $this->assertTrue($service->reject($request, $owner, 'Nope'));
-        $this->assertSame(LeaveRequest::STATUS_REJECTED, $request->fresh()->status);
+        $service->reject($request, $admin->id, 'Busy season');
+
+        $this->assertSame(LeaveRequest::REJECTED, $request->fresh()->status);
+        $this->assertSame('Busy season', $request->fresh()->review_note);
 
         $after = LeaveBalance::withoutGlobalScopes()
-            ->where('organization_id', $org->id)
+            ->where('organization_id', $ctx['organization']->id)
             ->where('employee_id', $employee->id)
-            ->where('leave_type_id', $leaveType->id)
-            ->firstOrFail()->remainingDays();
+            ->where('leave_type_id', $type->id)
+            ->firstOrFail();
 
-        $this->assertSame($before, $after);
+        $this->assertSame($before->used_days, $after->used_days);
     }
 
     public function test_employee_can_cancel_own_pending_request(): void
     {
-        $org = $this->makeOrganization('LeaveCo4');
-        [$employee, $leaveType] = $this->bootLeave($org);
-        $employeeUser = $employee->user;
+        $ctx = $this->makeOrganization('LeaveCo4');
+        [$employee, $type, $user] = $this->bootLeave($ctx);
 
-        $service = app(LeaveService::class);
-        $request = new LeaveRequest([
-            'start_date' => now()->addDays(3)->toDateString(),
-            'end_date' => now()->addDays(3)->toDateString(),
-            'days' => 1,
-            'reason' => 'Changed plan',
-            'status' => LeaveRequest::STATUS_PENDING,
-        ]);
-        $request->organization()->associate($org);
-        $request->employee()->associate($employee);
-        $request->leaveType()->associate($leaveType);
-        $request->save();
+        $request = $this->makePendingRequest($ctx, $employee, $type, 1, now()->addDays(3));
 
-        $this->actingAs($employeeUser)
+        $this->actingAs($user)
             ->post(route('leave.cancel', $request))
-            ->assertRedirect(route('leave.index'));
+            ->assertRedirect();
 
-        $this->assertSame(LeaveRequest::STATUS_CANCELLED, $request->fresh()->status);
+        $this->assertSame(LeaveRequest::CANCELLED, $request->fresh()->status);
+    }
+
+    public function test_employee_cannot_cancel_someone_elses_request(): void
+    {
+        $ctx = $this->makeOrganization('LeaveCo4b');
+        [$employee, $type] = $this->bootLeave($ctx);
+        $other = $this->makeUser($ctx['organization'], 'employee', $ctx['roles']);
+
+        $request = $this->makePendingRequest($ctx, $employee, $type, 1, now()->addDays(3));
+
+        $this->actingAs($other)
+            ->post(route('leave.cancel', $request))
+            ->assertForbidden();
+
+        $this->assertSame(LeaveRequest::PENDING, $request->fresh()->status);
     }
 
     public function test_leave_index_is_tenant_isolated(): void
     {
-        $orgA = $this->makeOrganization('LeaveCoA');
-        $orgB = $this->makeOrganization('LeaveCoB');
-        $ownerA = $orgA->users()->where('email', $this->ownerEmail())->firstOrFail();
-        $ownerA->syncRoles(['owner']);
-        $this->bootLeave($orgA);
+        $ctxA = $this->makeOrganization('LeaveCoA');
+        $ctxB = $this->makeOrganization('LeaveCoB');
+        $adminA = $this->makeUser($ctxA['organization'], 'company_admin', $ctxA['roles']);
 
-        $leaveTypeA = LeaveType::withoutGlobalScopes()->where('organization_id', $orgA->id)->where('code', 'SICK')->firstOrFail();
-        $employeeA = \App\Models\Employee::withoutGlobalScopes()->where('organization_id', $orgA->id)->firstOrFail();
+        // The leave row renders the employee's name, so name it distinctly.
+        [$employee, $type] = $this->bootLeave($ctxA, 'Zed Quark');
+        $this->makePendingRequest($ctxA, $employee, $type, 1, now()->addDay());
 
-        $request = new LeaveRequest([
-            'start_date' => now()->addDay()->toDateString(),
-            'end_date' => now()->addDay()->toDateString(),
-            'days' => 1,
-            'reason' => 'A only',
-            'status' => LeaveRequest::STATUS_PENDING,
-        ]);
-        $request->organization()->associate($orgA);
-        $request->employee()->associate($employeeA);
-        $request->leaveType()->associate($leaveTypeA);
-        $request->save();
-
-        $this->actingAs($ownerA)
+        $this->actingAs($adminA)
             ->get(route('leave.index'))
             ->assertOk()
-            ->assertSee('A only');
+            ->assertSee('Zed Quark');
 
-        $ownerB = $orgB->users()->where('email', $this->ownerEmail())->firstOrFail();
-        $ownerB->syncRoles(['owner']);
-        $this->actingAs($ownerB)
+        $adminB = $this->makeUser($ctxB['organization'], 'company_admin', $ctxB['roles']);
+        $this->actingAs($adminB)
             ->get(route('leave.index'))
             ->assertOk()
-            ->assertDontSee('A only');
+            ->assertDontSee('Zed Quark');
+    }
+
+    public function test_employee_sees_only_own_requests_in_index(): void
+    {
+        $ctx = $this->makeOrganization('LeaveCoC');
+        [$employee, $type, $ownerUser] = $this->bootLeave($ctx, 'Own Requests Person');
+        $this->makePendingRequest($ctx, $employee, $type, 1, now()->addDay());
+
+        // A second employee with their own pending request.
+        $otherUser = $this->makeUser($ctx['organization'], 'employee', $ctx['roles'], ['name' => 'Other Person']);
+        $otherEmployee = $this->makeEmployee($ctx['organization'], $otherUser, 'EMP-L2');
+        $this->makePendingRequest($ctx, $otherEmployee, $type, 1, now()->addDay());
+
+        $this->actingAs($ownerUser)
+            ->get(route('leave.index'))
+            ->assertOk()
+            ->assertSee('Own Requests Person')
+            ->assertDontSee('Other Person');
     }
 
     public function test_employee_cannot_approve_without_permission(): void
     {
-        $org = $this->makeOrganization('LeaveCoC');
-        [$employee, $leaveType] = $this->bootLeave($org);
+        $ctx = $this->makeOrganization('LeaveCoD');
+        [$employee, $type, $user] = $this->bootLeave($ctx);
 
-        $service = app(LeaveService::class);
-        $request = new LeaveRequest([
-            'start_date' => now()->addDay()->toDateString(),
-            'end_date' => now()->addDay()->toDateString(),
-            'days' => 1,
-            'reason' => 'x',
-            'status' => LeaveRequest::STATUS_PENDING,
-        ]);
-        $request->organization()->associate($org);
-        $request->employee()->associate($employee);
-        $request->leaveType()->associate($leaveType);
-        $request->save();
+        $request = $this->makePendingRequest($ctx, $employee, $type, 1, now()->addDay());
 
-        $this->actingAs($employee->user)
+        $this->actingAs($user)
             ->post(route('leave.approve', $request))
             ->assertForbidden();
+
+        $this->assertSame(LeaveRequest::PENDING, $request->fresh()->status);
     }
 }

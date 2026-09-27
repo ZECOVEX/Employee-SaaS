@@ -5,9 +5,7 @@ namespace Tests\Feature;
 use App\Models\AttendanceEvent;
 use App\Models\AttendanceTerminal;
 use App\Models\DailyAttendance;
-use App\Models\Employee;
 use App\Models\NfcCard;
-use App\Models\User;
 use App\Services\AttendanceService;
 use App\Services\WorkforceDefaults;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -19,88 +17,114 @@ class AttendanceTest extends TestCase
     use CreatesOrganizations;
     use RefreshDatabase;
 
-    private function makeTerminal($org, string $key = 'test-key'): AttendanceTerminal
+    private function makeTerminal(array $ctx, string $key = 'test-key'): AttendanceTerminal
     {
-        $terminal = new AttendanceTerminal([
+        return AttendanceTerminal::create([
+            'organization_id' => $ctx['organization']->id,
             'name' => 'TERM-TEST-001',
             'location' => 'Dhaka',
             'status' => 'active',
             'key_hash' => hash('sha256', $key),
         ]);
-        $terminal->organization()->associate($org);
-        $terminal->save();
-
-        return $terminal;
     }
 
-    private function makePunchableEmployee($org): array
+    private function makePunchableEmployee(array $ctx): array
     {
-        $employee = $this->makeEmployee($org, 'EMP-P1', 'attend@test.com');
-        $card = new NfcCard(['card_token' => 'tok-punch-1', 'status' => 'active']);
-        $card->organization()->associate($org);
-        $card->save();
-        $card->employee()->associate($employee);
-        $card->save();
+        $user = $this->makeUser($ctx['organization'], 'employee', $ctx['roles']);
+        $employee = $this->makeEmployee($ctx['organization'], $user, 'EMP-P1');
+
+        $card = NfcCard::create([
+            'organization_id' => $ctx['organization']->id,
+            'card_token' => 'tok-punch-1',
+            'status' => 'active',
+            'employee_id' => $employee->id,
+        ]);
 
         return [$employee, $card];
     }
 
     public function test_nfc_punch_requires_terminal_key(): void
     {
-        $org = $this->makeOrganization('PunchCo');
-        [$employee, $card] = $this->makePunchableEmployee($org);
+        $ctx = $this->makeOrganization('PunchCo');
+        [, $card] = $this->makePunchableEmployee($ctx);
 
-        $response = $this->postJson('/api/attendance/nfc/punch', ['card_token' => $card->card_token]);
-        $response->assertStatus(401);
+        $this->postJson('/api/attendance/nfc/punch', ['card_token' => $card->card_token])
+            ->assertStatus(401);
     }
 
     public function test_nfc_punch_creates_check_in_and_check_out(): void
     {
-        $org = $this->makeOrganization('PunchCo2');
-        $terminal = $this->makeTerminal($org, 'key-abc');
-        [$employee, $card] = $this->makePunchableEmployee($org);
+        $ctx = $this->makeOrganization('PunchCo2');
+        $this->makeTerminal($ctx, 'key-abc');
+        [, $card] = $this->makePunchableEmployee($ctx);
 
         $this->withHeaders(['X-Terminal-Key' => 'key-abc'])
             ->postJson('/api/attendance/nfc/punch', ['card_token' => $card->card_token])
             ->assertOk()
-            ->assertJsonPath('event', 'CHECK_IN');
+            ->assertJsonPath('action', 'check_in')
+            ->assertJsonPath('event_type', AttendanceEvent::CHECK_IN);
 
         $this->assertDatabaseHas('attendance_events', [
-            'organization_id' => $org->id,
-            'employee_id' => $employee->id,
-            'type' => AttendanceEvent::CHECK_IN,
+            'organization_id' => $ctx['organization']->id,
+            'event_type' => AttendanceEvent::CHECK_IN,
         ]);
 
-        // Immediate second punch is debounced.
+        // Immediate second punch is debounced (no accidental check-out).
         $this->withHeaders(['X-Terminal-Key' => 'key-abc'])
             ->postJson('/api/attendance/nfc/punch', ['card_token' => $card->card_token])
             ->assertOk()
-            ->assertJsonPath('event', 'DEBOUNCED');
+            ->assertJsonPath('action', 'duplicate');
 
-        // Travel back so the debounce window passes, then punch out.
+        $this->assertSame(
+            1,
+            AttendanceEvent::withoutGlobalScopes()
+                ->where('organization_id', $ctx['organization']->id)
+                ->count(),
+        );
+
+        // After the debounce window a punch toggles to check-out.
         $this->travel(120)->seconds();
 
         $this->withHeaders(['X-Terminal-Key' => 'key-abc'])
             ->postJson('/api/attendance/nfc/punch', ['card_token' => $card->card_token])
             ->assertOk()
-            ->assertJsonPath('event', 'CHECK_OUT');
+            ->assertJsonPath('action', 'check_out')
+            ->assertJsonPath('event_type', AttendanceEvent::CHECK_OUT);
     }
 
     public function test_punch_with_unknown_card_rejected(): void
     {
-        $org = $this->makeOrganization('PunchCo3');
-        $this->makeTerminal($org, 'key-xyz');
+        $ctx = $this->makeOrganization('PunchCo3');
+        $this->makeTerminal($ctx, 'key-xyz');
 
         $this->withHeaders(['X-Terminal-Key' => 'key-xyz'])
             ->postJson('/api/attendance/nfc/punch', ['card_token' => 'tok-none'])
-            ->assertStatus(404);
+            ->assertStatus(422);
+    }
+
+    public function test_punch_with_inactive_card_rejected(): void
+    {
+        $ctx = $this->makeOrganization('PunchCo3b');
+        $this->makeTerminal($ctx, 'key-in');
+        $user = $this->makeUser($ctx['organization'], 'employee', $ctx['roles']);
+        $employee = $this->makeEmployee($ctx['organization'], $user, 'EMP-P9');
+        NfcCard::create([
+            'organization_id' => $ctx['organization']->id,
+            'card_token' => 'tok-blocked',
+            'status' => 'blocked',
+            'employee_id' => $employee->id,
+        ]);
+
+        $this->withHeaders(['X-Terminal-Key' => 'key-in'])
+            ->postJson('/api/attendance/nfc/punch', ['card_token' => 'tok-blocked'])
+            ->assertStatus(422);
     }
 
     public function test_punch_with_wrong_terminal_key_rejected(): void
     {
-        $org = $this->makeOrganization('PunchCo4');
-        $this->makeTerminal($org, 'key-real');
-        [, $card] = $this->makePunchableEmployee($org);
+        $ctx = $this->makeOrganization('PunchCo4');
+        $this->makeTerminal($ctx, 'key-real');
+        [, $card] = $this->makePunchableEmployee($ctx);
 
         $this->withHeaders(['X-Terminal-Key' => 'key-wrong'])
             ->postJson('/api/attendance/nfc/punch', ['card_token' => $card->card_token])
@@ -109,94 +133,117 @@ class AttendanceTest extends TestCase
 
     public function test_punch_on_revoked_terminal_rejected(): void
     {
-        $org = $this->makeOrganization('PunchCo5');
-        $terminal = $this->makeTerminal($org, 'key-rev');
+        $ctx = $this->makeOrganization('PunchCo5');
+        $terminal = $this->makeTerminal($ctx, 'key-rev');
         $terminal->update(['status' => 'revoked']);
-        [, $card] = $this->makePunchableEmployee($org);
+        [, $card] = $this->makePunchableEmployee($ctx);
 
         $this->withHeaders(['X-Terminal-Key' => 'key-rev'])
             ->postJson('/api/attendance/nfc/punch', ['card_token' => $card->card_token])
             ->assertStatus(401);
     }
 
-    public function test_manual_correction_creates_event(): void
+    public function test_manual_correction_creates_event_and_audit_log(): void
     {
-        $org = $this->makeOrganization('PunchCo6');
-        $owner = $org->users()->where('email', $this->ownerEmail())->firstOrFail();
-        $employee = $this->makeEmployee($org, 'EMP-M1', 'manual@test.com');
+        $ctx = $this->makeOrganization('PunchCo6');
+        $admin = $this->makeUser($ctx['organization'], 'company_admin', $ctx['roles']);
+        $employee = $this->makeEmployee($ctx['organization'], $admin, 'EMP-M1');
+        $when = now()->format('Y-m-d H:i');
 
-        $this->actingAs($owner)
+        $this->actingAs($admin)
             ->post(route('attendance.store'), [
                 'employee_id' => $employee->id,
-                'type' => AttendanceEvent::CHECK_IN,
-                'occurred_at' => now()->format('Y-m-d H:i'),
-                'reason' => 'Forgot to punch',
+                'event_type' => AttendanceEvent::MANUAL_IN,
+                'occurred_at' => $when,
+                'notes' => 'Forgot to punch',
             ])
-            ->assertRedirect(route('attendance.index'));
+            ->assertRedirect(route('attendance.index', ['date' => now()->toDateString()]));
 
         $this->assertDatabaseHas('attendance_events', [
-            'organization_id' => $org->id,
+            'organization_id' => $ctx['organization']->id,
             'employee_id' => $employee->id,
-            'type' => AttendanceEvent::CHECK_IN,
+            'event_type' => AttendanceEvent::MANUAL_IN,
         ]);
         $this->assertDatabaseHas('audit_logs', [
-            'organization_id' => $org->id,
-            'action' => 'attendance.store',
+            'organization_id' => $ctx['organization']->id,
+            'action' => 'attendance.corrected',
         ]);
     }
 
     public function test_attendance_index_is_tenant_isolated(): void
     {
-        $orgA = $this->makeOrganization('AttCoA');
-        $orgB = $this->makeOrganization('AttCoB');
-        $ownerA = $orgA->users()->where('email', $this->ownerEmail())->firstOrFail();
+        $ctxA = $this->makeOrganization('AttCoA');
+        $ctxB = $this->makeOrganization('AttCoB');
+        $adminA = $this->makeUser($ctxA['organization'], 'company_admin', $ctxA['roles']);
+        $employeeA = $this->makeEmployee($ctxA['organization'], $adminA, 'EMP-A');
 
-        $employeeA = $this->makeEmployee($orgA, 'EMP-A', 'a@att.com');
-        $service = app(AttendanceService::class);
-        $service->recordManual($orgA, $employeeA, AttendanceEvent::CHECK_IN, now(), 'seed', $ownerA);
+        app(AttendanceService::class)->recordManual(
+            $employeeA,
+            AttendanceEvent::CHECK_IN,
+            now()->setTime(9, 5),
+            'seed',
+            $adminA->id,
+        );
 
-        $this->actingAs($ownerA)
+        $this->actingAs($adminA)
             ->get(route('attendance.index'))
             ->assertOk()
-            ->assertSee($employeeA->employee_code);
+            ->assertSee('EMP-A');
 
-        // Org B owner sees none of Org A's data.
-        $ownerB = $orgB->users()->where('email', $this->ownerEmail())->firstOrFail();
-        $this->actingAs($ownerB)
+        $adminB = $this->makeUser($ctxB['organization'], 'company_admin', $ctxB['roles']);
+        $this->actingAs($adminB)
             ->get(route('attendance.index'))
             ->assertOk()
-            ->assertDontSee($employeeA->employee_code);
+            ->assertDontSee('EMP-A');
     }
 
     public function test_attendance_requires_permission(): void
     {
-        $org = $this->makeOrganization('AttCoC');
-        $employeeUser = $org->users()->where('email', $this->ownerEmail())->firstOrFail();
-        $employeeUser->syncRoles(['employee']);
+        $ctx = $this->makeOrganization('AttCoC');
+        $employeeUser = $this->makeUser($ctx['organization'], 'employee', $ctx['roles']);
 
         $this->actingAs($employeeUser)
             ->get(route('attendance.index'))
             ->assertForbidden();
     }
 
+    public function test_manual_correction_requires_permission(): void
+    {
+        $ctx = $this->makeOrganization('AttCoD');
+        $employeeUser = $this->makeUser($ctx['organization'], 'employee', $ctx['roles']);
+
+        $this->actingAs($employeeUser)
+            ->post(route('attendance.store'), [
+                'employee_id' => 1,
+                'event_type' => AttendanceEvent::MANUAL_IN,
+                'occurred_at' => now()->format('Y-m-d H:i'),
+                'notes' => 'x',
+            ])
+            ->assertForbidden();
+    }
+
     public function test_derive_daily_marks_present_for_in_range_punch(): void
     {
-        $org = $this->makeOrganization('AttCoD');
-        WorkforceDefaults::apply($org);
+        $ctx = $this->makeOrganization('AttCoE');
+        app(WorkforceDefaults::class)->apply($ctx['organization']);
 
-        $employee = $this->makeEmployee($org, 'EMP-D1', 'd@att.com');
+        $user = $this->makeUser($ctx['organization'], 'employee', $ctx['roles']);
+        $employee = $this->makeEmployee($ctx['organization'], $user, 'EMP-D1');
         $today = now()->toDateString();
 
-        app(AttendanceService::class)->recordManual($org, $employee, AttendanceEvent::CHECK_IN, now()->setTime(9, 5), 'seed');
-        app(AttendanceService::class)->recordManual($org, $employee, AttendanceEvent::CHECK_OUT, now()->setTime(18, 10), 'seed');
+        $service = app(AttendanceService::class);
+        $service->recordManual($employee, AttendanceEvent::CHECK_IN, now()->setTime(9, 5), 'seed', $user->id);
+        $service->recordManual($employee, AttendanceEvent::CHECK_OUT, now()->setTime(18, 10), 'seed', $user->id);
 
         $daily = DailyAttendance::withoutGlobalScopes()
-            ->where('organization_id', $org->id)
+            ->where('organization_id', $ctx['organization']->id)
             ->where('employee_id', $employee->id)
             ->where('date', $today)
             ->first();
 
         $this->assertNotNull($daily);
         $this->assertSame('PRESENT', $daily->status);
+        $this->assertSame(now()->setTime(9, 5)->toDateTimeString(), $daily->first_check_in?->toDateTimeString());
+        $this->assertSame(now()->setTime(18, 10)->toDateTimeString(), $daily->last_check_out?->toDateTimeString());
     }
 }

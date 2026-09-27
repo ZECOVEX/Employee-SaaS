@@ -62,10 +62,10 @@ class AttendanceService
 
             $eventType = $isOpen ? AttendanceEvent::CHECK_OUT : AttendanceEvent::CHECK_IN;
 
-            // Debounce: ignore duplicate same-direction punches within 60 seconds.
+            // Debounce: ignore any punch within 60 seconds of the previous event
+            // so a double-tap cannot immediately flip check-in to check-out.
             if ($lastEvent !== null
-                && $lastEvent->event_type === $eventType
-                && $lastEvent->occurred_at->diffInSeconds($now) < 60) {
+                && $lastEvent->occurred_at->greaterThan($now->copy()->subSeconds(60))) {
                 $daily = $this->deriveDaily($employee, $date);
 
                 return ['event' => $lastEvent, 'daily' => $daily, 'action' => 'duplicate'];
@@ -170,13 +170,14 @@ class AttendanceService
             if ($schedule && $checkIn) {
                 $start = Carbon::parse($date.' '.$schedule->start_time, $tz);
                 $grace = (int) $schedule->grace_minutes;
-                if ($checkIn->copy()->timezone($tz)->greaterThan($start->copy()->addMinutes($grace))) {
-                    $lateMinutes = $start->diffInMinutes($checkIn->copy()->timezone($tz));
+                $checkInAt = $checkIn->occurred_at->copy()->timezone($tz);
+                if ($checkInAt->greaterThan($start->copy()->addMinutes($grace))) {
+                    $lateMinutes = $start->diffInMinutes($checkInAt);
                     $status = 'LATE';
                 }
             }
 
-            $endReference = $checkOut?->copy()->timezone($tz);
+            $endReference = $checkOut?->occurred_at?->copy()->timezone($tz);
 
             if ($endReference && $schedule) {
                 $end = Carbon::parse($date.' '.$schedule->end_time, $tz);
@@ -188,7 +189,7 @@ class AttendanceService
             }
 
             $workEnd = $endReference ?? Carbon::now($tz);
-            $totalMinutes = max(0, (int) $checkIn->copy()->timezone($tz)->diffInMinutes($workEnd));
+            $totalMinutes = max(0, (int) $checkIn->occurred_at->copy()->timezone($tz)->diffInMinutes($workEnd));
 
             if ($schedule?->break_start && $schedule?->break_end && $checkOut) {
                 $breakMinutes = (int) Carbon::parse($schedule->break_start, $tz)

@@ -24,6 +24,9 @@ class DailyAttendance extends Model
 {
     use BelongsToOrganization;
 
+    /** Table name is singular by spec (daily_attendance). */
+    protected $table = 'daily_attendance';
+
     protected function casts(): array
     {
         return [
