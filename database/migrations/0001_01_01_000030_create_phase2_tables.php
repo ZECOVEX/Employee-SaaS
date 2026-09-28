@@ -19,9 +19,12 @@ return new class extends Migration
             $table->time('break_end')->nullable();
             $table->json('work_days')->nullable();
             $table->boolean('is_default')->default(true);
+            $table->date('effective_from')->nullable();
+            $table->date('effective_to')->nullable();
             $table->timestamps();
 
-            $table->unique(['organization_id', 'name']);
+            $table->index(['organization_id', 'name']);
+            $table->index(['organization_id', 'effective_from', 'effective_to']);
         });
 
         Schema::create('holidays', function (Blueprint $table) {
@@ -95,6 +98,8 @@ return new class extends Migration
             $table->unsignedInteger('late_minutes')->default(0);
             $table->unsignedInteger('early_leave_minutes')->default(0);
             $table->unsignedInteger('overtime_minutes')->default(0);
+            $table->unsignedSmallInteger('segment_count')->default(0);
+            $table->string('review_flag')->nullable(); // possible_missed_checkin | excessive_segments
             $table->string('status')->default('PRESENT'); // PRESENT | LATE | ABSENT | HALF_DAY | LEAVE | HOLIDAY | WEEKEND | REMOTE
             $table->boolean('is_manual')->default(false);
             $table->timestamps();

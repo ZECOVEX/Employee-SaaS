@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AttendanceEvent;
 use App\Models\AttendanceTerminal;
 use App\Services\AttendanceService;
 use Illuminate\Http\JsonResponse;
@@ -17,6 +18,7 @@ class PunchController extends Controller
     {
         $data = $request->validate([
             'card_token' => ['required', 'string', 'max:64'],
+            'terminal_id' => ['sometimes', 'integer'],
         ]);
 
         $key = $request->header('X-Terminal-Key') ?? $request->input('terminal_key');
@@ -32,6 +34,10 @@ class PunchController extends Controller
 
         if (! $terminal) {
             return response()->json(['message' => 'Invalid or revoked terminal key.'], 401);
+        }
+
+        if (isset($data['terminal_id']) && (int) $data['terminal_id'] !== $terminal->id) {
+            return response()->json(['message' => 'Terminal does not match the authenticated terminal.'], 403);
         }
 
         $limiterKey = 'punch:'.$terminal->id;
@@ -57,7 +63,11 @@ class PunchController extends Controller
         $message = match ($result['action']) {
             'check_in' => 'Check-in recorded.',
             'check_out' => 'Check-out recorded.',
-            default => 'Duplicate punch ignored.',
+            default => sprintf(
+                'Already recorded — %s at %s.',
+                $this->eventLabel($result['event']->event_type),
+                $result['event']->occurred_at->format('h:i A'),
+            ),
         };
 
         return response()->json([
@@ -74,7 +84,20 @@ class PunchController extends Controller
                 'first_check_in' => $daily->first_check_in?->toIso8601String(),
                 'last_check_out' => $daily->last_check_out?->toIso8601String(),
                 'total_work_minutes' => $daily->total_work_minutes,
+                'segment_count' => $daily->segment_count,
+                'review_flag' => $daily->review_flag,
             ],
         ]);
+    }
+
+    private function eventLabel(string $eventType): string
+    {
+        return match ($eventType) {
+            AttendanceEvent::CHECK_IN, AttendanceEvent::MANUAL_IN => 'Check-in',
+            AttendanceEvent::CHECK_OUT, AttendanceEvent::MANUAL_OUT => 'Check-out',
+            AttendanceEvent::BREAK_START => 'Break start',
+            AttendanceEvent::BREAK_END => 'Break end',
+            default => 'Punch',
+        };
     }
 }

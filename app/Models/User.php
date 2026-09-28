@@ -92,6 +92,17 @@ class User extends Authenticatable
         return in_array($key, $this->permissionKeys(), true);
     }
 
+    /**
+     * Plain employee accounts (§3): identity is HR-managed and they may not
+     * delete their own account.
+     */
+    public function isEmployeeOnly(): bool
+    {
+        return $this->hasRole('employee')
+            && ! $this->hasAnyRole(['company_admin', 'hr', 'manager'])
+            && ! $this->is_platform_admin;
+    }
+
     public function managedDepartments(): HasMany
     {
         return $this->hasMany(Department::class, 'manager_id');

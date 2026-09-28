@@ -60,6 +60,7 @@
                                 </td>
                                 <td class="px-6 py-4 text-gray-500">{{ $card->last_used_at?->format('Y-m-d H:i') ?? '—' }}</td>
                                 <td class="px-6 py-4 text-right space-x-2 whitespace-nowrap">
+                                    <a href="{{ route('nfc-cards.history', $card) }}" class="text-indigo-600 hover:underline" wire:navigate>History</a>
                                     @can('nfc.manage')
                                         @if ($card->status === 'available')
                                             <form action="{{ route('nfc-cards.assign', $card) }}" method="POST" class="inline">
@@ -81,6 +82,13 @@
                                             <form action="{{ route('nfc-cards.block', $card) }}" method="POST" class="inline">
                                                 @csrf
                                                 <button type="submit" class="text-yellow-600 hover:underline">Block</button>
+                                            </form>
+                                        @endif
+                                        @if ($card->employee_id && $card->status !== 'revoked')
+                                            <form action="{{ route('nfc-cards.replace', $card) }}" method="POST" class="inline"
+                                                  onsubmit="return confirm('Replace this card? A new token will be issued and this one revoked. Attendance history is preserved.')">
+                                                @csrf
+                                                <button type="submit" class="text-indigo-600 hover:underline">Replace</button>
                                             </form>
                                         @endif
                                         @if ($card->status !== 'revoked')

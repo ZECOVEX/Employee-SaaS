@@ -58,5 +58,5 @@ GET /employees
 ## Testing
 
 - `Tests\Concerns\CreatesOrganizations` helpers (`makeOrganization`, `makeUser`, …)
-- Feature tests: tenancy isolation, RBAC allow/deny, employee CRUD, registration, auth (Volt), profile
+- Feature tests: tenancy isolation, RBAC allow/deny, employee CRUD, registration, auth (Volt), profile, attendance/leave/schedules, salary records + calculator + Statistics, payslips/revisions, reports (filters, CSV, permission gates), analytics
 - `RefreshDatabase` + SQLite `:memory:`

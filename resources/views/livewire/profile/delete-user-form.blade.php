@@ -2,6 +2,7 @@
 
 use App\Livewire\Actions\Logout;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\ValidationException;
 use Livewire\Volt\Component;
 
 new class extends Component
@@ -13,6 +14,13 @@ new class extends Component
      */
     public function deleteUser(Logout $logout): void
     {
+        // Employees are prohibited from deleting their own accounts (§3).
+        if (Auth::user()->isEmployeeOnly()) {
+            throw ValidationException::withMessages([
+                'password' => 'Employee accounts cannot be deleted here. Contact an administrator.',
+            ]);
+        }
+
         $this->validate([
             'password' => ['required', 'string', 'current_password'],
         ]);

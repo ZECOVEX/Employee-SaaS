@@ -34,8 +34,8 @@
                                     {{ $record->status }}
                                     @if ($record->is_manual) <span class="text-xs text-gray-400">(adjusted)</span> @endif
                                 </td>
-                                <td class="px-6 py-4 text-gray-500">{{ $record->first_check_in?->format('H:i') ?? '—' }}</td>
-                                <td class="px-6 py-4 text-gray-500">{{ $record->last_check_out?->format('H:i') ?? '—' }}</td>
+                                <td class="px-6 py-4 text-gray-500"><x-time :value="$record->first_check_in" /></td>
+                                <td class="px-6 py-4 text-gray-500"><x-time :value="$record->last_check_out" /></td>
                                 <td class="px-6 py-4 text-gray-500">{{ intdiv($record->total_work_minutes, 60) }}h {{ $record->total_work_minutes % 60 }}m</td>
                                 <td class="px-6 py-4 text-gray-500">{{ $record->late_minutes > 0 ? $record->late_minutes.' min' : '—' }}</td>
                             </tr>

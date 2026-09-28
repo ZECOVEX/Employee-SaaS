@@ -17,6 +17,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'late_minutes',
     'early_leave_minutes',
     'overtime_minutes',
+    'segment_count',
+    'review_flag',
     'status',
     'is_manual',
 ])]
@@ -30,13 +32,14 @@ class DailyAttendance extends Model
     protected function casts(): array
     {
         return [
-            'date' => 'date',
+            'date' => 'date:Y-m-d',
             'first_check_in' => 'datetime',
             'last_check_out' => 'datetime',
             'total_work_minutes' => 'integer',
             'late_minutes' => 'integer',
             'early_leave_minutes' => 'integer',
             'overtime_minutes' => 'integer',
+            'segment_count' => 'integer',
             'is_manual' => 'boolean',
         ];
     }

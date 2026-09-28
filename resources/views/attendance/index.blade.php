@@ -71,8 +71,8 @@
                                         <span class="text-xs text-gray-400">(manual)</span>
                                     @endif
                                 </td>
-                                <td class="px-6 py-4 text-gray-500">{{ $record->first_check_in?->timezone($tz)->format('H:i') ?? '—' }}</td>
-                                <td class="px-6 py-4 text-gray-500">{{ $record->last_check_out?->timezone($tz)->format('H:i') ?? '—' }}</td>
+                                <td class="px-6 py-4 text-gray-500"><x-time :value="$record->first_check_in" /></td>
+                                <td class="px-6 py-4 text-gray-500"><x-time :value="$record->last_check_out" /></td>
                                 <td class="px-6 py-4 text-gray-500">{{ intdiv($record->total_work_minutes, 60) }}h {{ $record->total_work_minutes % 60 }}m</td>
                                 <td class="px-6 py-4 text-gray-500">{{ $record->late_minutes > 0 ? $record->late_minutes.' min' : '—' }}</td>
                                 <td class="px-6 py-4 text-right">
@@ -95,6 +95,15 @@
             <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
                 <div class="px-6 py-4 border-b border-gray-100 font-medium text-gray-700">Recent events</div>
                 <table class="min-w-full divide-y divide-gray-200 text-sm">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left font-medium text-gray-500">Employee</th>
+                            <th class="px-6 py-3 text-left font-medium text-gray-500">Event</th>
+                            <th class="px-6 py-3 text-left font-medium text-gray-500">When</th>
+                            <th class="px-6 py-3 text-left font-medium text-gray-500">Source</th>
+                            <th class="px-6 py-3"></th>
+                        </tr>
+                    </thead>
                     <tbody class="divide-y divide-gray-100">
                         @forelse ($events as $event)
                             <tr>
@@ -102,12 +111,17 @@
                                 <td class="px-6 py-3">
                                     <span class="text-xs font-semibold {{ $event->event_type === 'CHECK_OUT' || $event->event_type === 'MANUAL_OUT' ? 'text-red-600' : 'text-green-600' }}">{{ $event->event_type }}</span>
                                 </td>
-                                <td class="px-6 py-3 text-gray-500">{{ $event->occurred_at->timezone($tz)->format('H:i:s') }}</td>
+                                <td class="px-6 py-3 text-gray-500"><x-time :value="$event->occurred_at" seconds /></td>
                                 <td class="px-6 py-3 text-gray-400 text-xs">{{ $event->source }} {{ $event->terminal?->name ? '· '.$event->terminal->name : '' }}</td>
+                                <td class="px-6 py-3 text-right">
+                                    @can('attendance.manage')
+                                        <a href="{{ route('attendance.events.edit', $event) }}" class="text-indigo-600 hover:underline">Edit</a>
+                                    @endcan
+                                </td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="4" class="px-6 py-6 text-center text-gray-500">No events.</td>
+                                <td colspan="5" class="px-6 py-6 text-center text-gray-500">No events.</td>
                             </tr>
                         @endforelse
                     </tbody>

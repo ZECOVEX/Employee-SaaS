@@ -6,6 +6,7 @@ use App\Support\Tenancy\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
     'organization_id',
@@ -55,5 +56,15 @@ class Employee extends Model
     public function manager(): BelongsTo
     {
         return $this->belongsTo(User::class, 'manager_id');
+    }
+
+    public function salaryRecords(): HasMany
+    {
+        return $this->hasMany(SalaryRecord::class);
+    }
+
+    public function payslips(): HasMany
+    {
+        return $this->hasMany(Payslip::class);
     }
 }

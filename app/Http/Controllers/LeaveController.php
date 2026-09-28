@@ -2,13 +2,13 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\DailyAttendance;
 use App\Models\Employee;
 use App\Models\LeaveBalance;
 use App\Models\LeaveRequest;
 use App\Models\LeaveType;
 use App\Services\AuditLogger;
 use App\Services\LeaveService;
+use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -81,8 +81,8 @@ class LeaveController extends Controller
         ]);
 
         $days = $this->leave->workingDays(
-            \Carbon\Carbon::parse($data['start_date']),
-            \Carbon\Carbon::parse($data['end_date']),
+            Carbon::parse($data['start_date']),
+            Carbon::parse($data['end_date']),
         );
 
         if ($days < 1) {

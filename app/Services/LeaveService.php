@@ -7,6 +7,7 @@ use App\Models\Employee;
 use App\Models\LeaveBalance;
 use App\Models\LeaveRequest;
 use App\Models\LeaveType;
+use App\Notifications\LeaveStatusChanged;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -91,6 +92,15 @@ class LeaveService
             $this->markAttendance($request, 'LEAVE');
             $this->audit->log('leave.approved', $request, ['status' => LeaveRequest::PENDING], $request->fresh()->only(['status', 'reviewed_by', 'review_note']));
 
+            $request->employee?->user?->notify(new LeaveStatusChanged(
+                'approved',
+                $leaveType->code,
+                $request->start_date->format('d M Y'),
+                $request->end_date->format('d M Y'),
+                (int) $request->days,
+                $note,
+            ));
+
             return $request;
         });
     }
@@ -110,6 +120,16 @@ class LeaveService
             ]);
 
             $this->audit->log('leave.rejected', $request, ['status' => LeaveRequest::PENDING], $request->fresh()->only(['status', 'reviewed_by', 'review_note']));
+
+            $leaveType = LeaveType::withoutGlobalScopes()->findOrFail($request->leave_type_id);
+            $request->employee?->user?->notify(new LeaveStatusChanged(
+                'rejected',
+                $leaveType->code,
+                $request->start_date->format('d M Y'),
+                $request->end_date->format('d M Y'),
+                (int) $request->days,
+                $note,
+            ));
 
             return $request;
         });

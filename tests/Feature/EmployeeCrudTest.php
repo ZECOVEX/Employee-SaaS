@@ -5,6 +5,8 @@ namespace Tests\Feature;
 use App\Models\AuditLog;
 use App\Models\Employee;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\Concerns\CreatesOrganizations;
 use Tests\TestCase;
 
@@ -107,5 +109,78 @@ class EmployeeCrudTest extends TestCase
             'organization_id' => $org->id,
             'name' => 'Finance',
         ]);
+    }
+
+    public function test_admin_can_upload_employee_photo(): void
+    {
+        Storage::fake('public');
+
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
+        $admin = $this->makeUser($org, 'company_admin', $roles);
+        $user = $this->makeUser($org, 'employee', $roles, ['email' => 'photo@acme.test']);
+        $employee = $this->makeEmployee($org, $user, 'EMP-PH1');
+
+        // Real 1x1 PNG bytes so the `image` rule passes without the GD extension.
+        $png = base64_decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+        );
+        $photo = UploadedFile::fake()->createWithContent('photo.png', $png);
+
+        $this->actingAs($admin)
+            ->put(route('employees.update', $employee), [
+                'name' => 'Photo Person',
+                'email' => 'photo@acme.test',
+                'status' => 'active',
+                'employment_type' => 'full_time',
+                'photo' => $photo,
+            ])
+            ->assertRedirect(route('employees.show', $employee));
+
+        $employee->refresh();
+        $this->assertNotNull($employee->photo_path);
+        Storage::disk('public')->assertExists($employee->photo_path);
+
+        // Replacing removes the previous file.
+        $firstPath = $employee->photo_path;
+        $second = UploadedFile::fake()->createWithContent('photo2.png', $png);
+
+        $this->actingAs($admin)
+            ->put(route('employees.update', $employee), [
+                'name' => 'Photo Person',
+                'email' => 'photo@acme.test',
+                'status' => 'active',
+                'employment_type' => 'full_time',
+                'photo' => $second,
+            ])
+            ->assertRedirect(route('employees.show', $employee));
+
+        $employee->refresh();
+        $this->assertNotSame($firstPath, $employee->photo_path);
+        Storage::disk('public')->assertMissing($firstPath);
+        Storage::disk('public')->assertExists($employee->photo_path);
+    }
+
+    public function test_rejects_non_image_photo_upload(): void
+    {
+        Storage::fake('public');
+
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
+        $admin = $this->makeUser($org, 'company_admin', $roles);
+        $user = $this->makeUser($org, 'employee', $roles, ['email' => 'noimg@acme.test']);
+        $employee = $this->makeEmployee($org, $user, 'EMP-PH2');
+
+        $fake = UploadedFile::fake()->create('resume.pdf', 10, 'application/pdf');
+
+        $this->actingAs($admin)
+            ->put(route('employees.update', $employee), [
+                'name' => 'No Image',
+                'email' => 'noimg@acme.test',
+                'status' => 'active',
+                'employment_type' => 'full_time',
+                'photo' => $fake,
+            ])
+            ->assertSessionHasErrors('photo');
+
+        $this->assertNull($employee->fresh()->photo_path);
     }
 }

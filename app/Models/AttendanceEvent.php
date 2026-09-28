@@ -6,6 +6,7 @@ use App\Support\Tenancy\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 #[Fillable([
     'organization_id',
@@ -20,16 +21,23 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'source',
     'notes',
     'created_by',
+    'superseded_by',
 ])]
 class AttendanceEvent extends Model
 {
     use BelongsToOrganization;
+    use SoftDeletes;
 
     public const CHECK_IN = 'CHECK_IN';
+
     public const CHECK_OUT = 'CHECK_OUT';
+
     public const BREAK_START = 'BREAK_START';
+
     public const BREAK_END = 'BREAK_END';
+
     public const MANUAL_IN = 'MANUAL_IN';
+
     public const MANUAL_OUT = 'MANUAL_OUT';
 
     protected function casts(): array
@@ -57,5 +65,13 @@ class AttendanceEvent extends Model
     public function card(): BelongsTo
     {
         return $this->belongsTo(NfcCard::class, 'nfc_card_id');
+    }
+
+    /**
+     * The replacement event created when this entry was corrected (§24).
+     */
+    public function replacement(): BelongsTo
+    {
+        return $this->belongsTo(AttendanceEvent::class, 'superseded_by');
     }
 }

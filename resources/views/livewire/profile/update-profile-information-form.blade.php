@@ -1,14 +1,15 @@
 <?php
-
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Livewire\Volt\Component;
 
 new class extends Component
 {
     public string $name = '';
+
     public string $email = '';
 
     /**
@@ -21,11 +22,27 @@ new class extends Component
     }
 
     /**
+     * Employees cannot change their own identity (§3); HR/admin only.
+     */
+    public function canEditIdentity(): bool
+    {
+        $user = Auth::user();
+
+        return $user->is_platform_admin || $user->canPermission('employees.edit');
+    }
+
+    /**
      * Update the profile information for the currently authenticated user.
      */
     public function updateProfileInformation(): void
     {
         $user = Auth::user();
+
+        if (! $this->canEditIdentity()) {
+            throw ValidationException::withMessages([
+                'name' => 'Your name and email are managed by HR and cannot be changed here.',
+            ]);
+        }
 
         $validated = $this->validate([
             'name' => ['required', 'string', 'max:255'],
@@ -74,15 +91,23 @@ new class extends Component
     </header>
 
     <form wire:submit="updateProfileInformation" class="mt-6 space-y-6">
+        @if (! $this->canEditIdentity())
+            <p class="rounded-md bg-gray-50 p-3 text-sm text-gray-600">
+                Your name and email are managed by HR. Contact an administrator to change them.
+            </p>
+        @endif
+
         <div>
             <x-input-label for="name" :value="__('Name')" />
-            <x-text-input wire:model="name" id="name" name="name" type="text" class="mt-1 block w-full" required autofocus autocomplete="name" />
+            <x-text-input wire:model="name" id="name" name="name" type="text" class="mt-1 block w-full" required autofocus autocomplete="name"
+                          :disabled="! $this->canEditIdentity()" />
             <x-input-error class="mt-2" :messages="$errors->get('name')" />
         </div>
 
         <div>
             <x-input-label for="email" :value="__('Email')" />
-            <x-text-input wire:model="email" id="email" name="email" type="email" class="mt-1 block w-full" required autocomplete="username" />
+            <x-text-input wire:model="email" id="email" name="email" type="email" class="mt-1 block w-full" required autocomplete="username"
+                          :disabled="! $this->canEditIdentity()" />
             <x-input-error class="mt-2" :messages="$errors->get('email')" />
 
             @if (auth()->user() instanceof \Illuminate\Contracts\Auth\MustVerifyEmail && ! auth()->user()->hasVerifiedEmail())
@@ -105,11 +130,13 @@ new class extends Component
         </div>
 
         <div class="flex items-center gap-4">
-            <x-primary-button>{{ __('Save') }}</x-primary-button>
+            @if ($this->canEditIdentity())
+                <x-primary-button>{{ __('Save') }}</x-primary-button>
 
-            <x-action-message class="me-3" on="profile-updated">
-                {{ __('Saved.') }}
-            </x-action-message>
+                <x-action-message class="me-3" on="profile-updated">
+                    {{ __('Saved.') }}
+                </x-action-message>
+            @endif
         </div>
     </form>
 </section>

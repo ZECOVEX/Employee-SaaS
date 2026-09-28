@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\AttendanceTerminal;
+use App\Models\AuditLog;
 use App\Models\NfcCard;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -209,5 +210,87 @@ class NfcTerminalTest extends TestCase
             ->assertNotFound();
 
         $this->assertSame('active', $terminalA->fresh()->status);
+    }
+
+    public function test_replace_card_preserves_attendance_history(): void
+    {
+        $ctx = $this->makeOrganization('NfcRep1');
+        $admin = $this->makeUser($ctx['organization'], 'company_admin', $ctx['roles']);
+        $user = $this->makeUser($ctx['organization'], 'employee', $ctx['roles']);
+        $employee = $this->makeEmployee($ctx['organization'], $user, 'EMP-R1');
+
+        $terminal = AttendanceTerminal::create([
+            'organization_id' => $ctx['organization']->id,
+            'name' => 'TERM-R',
+            'location' => 'Lobby',
+            'status' => 'active',
+            'key_hash' => hash('sha256', 'key-rep'),
+        ]);
+
+        $card = NfcCard::create([
+            'organization_id' => $ctx['organization']->id,
+            'card_token' => 'tok-rep-old',
+            'status' => 'active',
+            'employee_id' => $employee->id,
+        ]);
+
+        $this->withHeaders(['X-Terminal-Key' => 'key-rep'])
+            ->postJson('/api/attendance/nfc/punch', ['card_token' => 'tok-rep-old'])
+            ->assertOk()
+            ->assertJsonPath('action', 'check_in');
+
+        $this->actingAs($admin)
+            ->post(route('nfc-cards.replace', $card))
+            ->assertRedirect(route('nfc-cards.index'));
+
+        $status = session('status');
+        $this->assertIsString($status);
+        $this->assertStringContainsString('Card replaced. New token:', $status);
+
+        $old = $card->fresh();
+        $this->assertSame('revoked', $old->status);
+        $this->assertNotNull($old->revoked_at);
+        // The revoked card keeps its employee link so history still resolves.
+        $this->assertSame($employee->id, $old->employee_id);
+
+        $newCard = NfcCard::withoutGlobalScopes()
+            ->where('organization_id', $ctx['organization']->id)
+            ->where('status', 'active')
+            ->where('employee_id', $employee->id)
+            ->firstOrFail();
+        $this->assertNotSame('tok-rep-old', $newCard->card_token);
+
+        $this->assertNotNull(
+            AuditLog::withoutGlobalScopes()
+                ->where('organization_id', $ctx['organization']->id)
+                ->where('action', 'nfc.replaced')
+                ->first(),
+        );
+
+        // Old token no longer punches.
+        $this->withHeaders(['X-Terminal-Key' => 'key-rep'])
+            ->postJson('/api/attendance/nfc/punch', ['card_token' => 'tok-rep-old'])
+            ->assertUnprocessable();
+
+        // New token punches (state still open from before the replacement → check_out).
+        $this->travel(20)->seconds();
+        $this->withHeaders(['X-Terminal-Key' => 'key-rep'])
+            ->postJson('/api/attendance/nfc/punch', ['card_token' => $newCard->card_token])
+            ->assertOk()
+            ->assertJsonPath('action', 'check_out');
+
+        // The pre-replacement punch still appears in the card's history.
+        $this->actingAs($admin)
+            ->get(route('nfc-cards.history', $card))
+            ->assertOk()
+            ->assertSee('Card History')
+            ->assertSee('Punch history')
+            ->assertSee('CHECK_IN')
+            ->assertSee('tok-rep-old');
+
+        $employeeUser = $this->makeUser($ctx['organization'], 'employee', $ctx['roles']);
+        $this->actingAs($employeeUser)
+            ->get(route('nfc-cards.history', $card))
+            ->assertForbidden();
     }
 }

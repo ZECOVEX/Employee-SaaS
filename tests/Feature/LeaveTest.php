@@ -2,9 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Models\Employee;
 use App\Models\LeaveBalance;
 use App\Models\LeaveRequest;
 use App\Models\LeaveType;
+use App\Models\User;
 use App\Services\LeaveService;
 use App\Services\WorkforceDefaults;
 use Carbon\Carbon;
@@ -18,7 +20,7 @@ class LeaveTest extends TestCase
     use RefreshDatabase;
 
     /**
-     * @return array{0: \App\Models\Employee, 1: LeaveType, 2: \App\Models\User}
+     * @return array{0: Employee, 1: LeaveType, 2: User}
      */
     private function bootLeave(array $ctx, string $employeeName = 'Employee User'): array
     {
@@ -81,7 +83,7 @@ class LeaveTest extends TestCase
 
         $this->assertDatabaseHas('leave_requests', [
             'organization_id' => $ctx['organization']->id,
-            'employee_id' => \App\Models\Employee::withoutGlobalScopes()
+            'employee_id' => Employee::withoutGlobalScopes()
                 ->where('organization_id', $ctx['organization']->id)
                 ->firstOrFail()
                 ->id,

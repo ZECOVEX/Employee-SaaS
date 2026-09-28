@@ -6,6 +6,7 @@ use App\Models\Department;
 use App\Models\Employee;
 use App\Models\Position;
 use App\Models\Role;
+use App\Models\SalaryRecord;
 use App\Models\User;
 use App\Services\AuditLogger;
 use Illuminate\Http\RedirectResponse;
@@ -13,6 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
 use Illuminate\View\View;
@@ -137,9 +139,19 @@ class EmployeeController extends Controller
 
         $employee->load(['user:id,name,email,last_login_at', 'department:id,name', 'position:id,title', 'manager:id,name']);
 
-        $canSeeSalary = Gate::allows('salary.view');
+        $isSelf = auth()->user()?->employee?->id === $employee->id;
+        $canSeeSalary = Gate::allows('salary.view')
+            || ($isSelf && Gate::allows('salary.view_own'));
 
-        return view('employees.show', compact('employee', 'canSeeSalary'));
+        $currentSalary = $canSeeSalary
+            ? SalaryRecord::effectiveFor(
+                (int) $employee->organization_id,
+                $employee->id,
+                now($employee->organization?->timezone ?? 'UTC')->toDateString(),
+            )
+            : null;
+
+        return view('employees.show', compact('employee', 'canSeeSalary', 'currentSalary'));
     }
 
     public function edit(Employee $employee): View
@@ -180,13 +192,16 @@ class EmployeeController extends Controller
             'work_location' => ['nullable', 'string', 'max:120'],
             'emergency_contact_name' => ['nullable', 'string', 'max:120'],
             'emergency_contact_phone' => ['nullable', 'string', 'max:32'],
+            'photo' => ['nullable', 'image', 'max:2048'],
         ]);
 
         $oldEmployee = $employee->only([
             'department_id', 'position_id', 'manager_id', 'status', 'employment_type',
             'phone', 'address', 'date_of_birth', 'joining_date', 'work_location',
+            'photo_path',
         ]);
         $oldUser = $employee->user->only(['name', 'email']);
+        $oldPhotoPath = $employee->photo_path;
 
         DB::transaction(function () use ($data, $employee) {
             $employee->update([
@@ -209,6 +224,18 @@ class EmployeeController extends Controller
                 'email' => $data['email'],
             ]);
         });
+
+        // Store the photo only after the transaction commits, so a rolled-back
+        // update never leaves an orphaned file on disk; the old file is removed
+        // only once the new path has been persisted.
+        if ($request->hasFile('photo')) {
+            $newPhotoPath = $request->file('photo')->store('employees/'.$employee->id, 'public');
+            $employee->update(['photo_path' => $newPhotoPath]);
+
+            if ($oldPhotoPath) {
+                Storage::disk('public')->delete($oldPhotoPath);
+            }
+        }
 
         $this->audit->log('employee.updated', $employee, [
             'employee' => $oldEmployee,

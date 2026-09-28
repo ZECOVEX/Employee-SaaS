@@ -52,6 +52,16 @@
             <x-text-input id="email" name="email" type="email" class="mt-1 block w-full" :value="old('email', $user?->email)" required />
             <x-input-error :messages="$errors->get('email')" class="mt-2" />
         </div>
+        <div class="sm:col-span-2">
+            <x-input-label for="photo" value="Profile photo" />
+            <input id="photo" name="photo" type="file" accept="image/png,image/jpeg,image/webp"
+                   class="mt-1 block w-full text-sm text-gray-600 file:me-3 file:py-1 file:px-3 file:rounded-md file:border-0 file:bg-gray-100 file:text-xs file:font-semibold file:text-gray-700 hover:file:bg-gray-200" />
+            <p class="mt-1 text-xs text-gray-500">JPG, PNG or WebP — up to 2 MB.</p>
+            <x-input-error :messages="$errors->get('photo')" class="mt-2" />
+            @if ($employee?->photo_path)
+                <img src="{{ Storage::disk('public')->url($employee->photo_path) }}" alt="" class="mt-2 w-16 h-16 rounded-full object-cover" />
+            @endif
+        </div>
     </div>
 @endif
 

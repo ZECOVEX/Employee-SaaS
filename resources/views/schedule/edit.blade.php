@@ -22,6 +22,12 @@
                     @csrf
                     @method('PUT')
 
+                    <p class="text-sm text-gray-500">
+                        Current schedule effective since
+                        <span class="font-medium text-gray-700">{{ $schedule->effective_from?->format('d M Y') ?? 'the beginning' }}</span>.
+                        Changes apply from today onward — past days keep the schedule they were derived with.
+                    </p>
+
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <x-input-label for="start_time" value="Office start" />

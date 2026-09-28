@@ -1,15 +1,22 @@
 <?php
 
+use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\AttendanceController;
+use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\Auth\RegisteredOrganizationController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\LeaveController;
 use App\Http\Controllers\NfcCardController;
+use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\PayslipController;
 use App\Http\Controllers\PlatformController;
+use App\Http\Controllers\ReportController;
+use App\Http\Controllers\SalaryController;
 use App\Http\Controllers\ScheduleController;
 use App\Http\Controllers\SettingsController;
+use App\Http\Controllers\StatisticsController;
 use App\Http\Controllers\TerminalController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
@@ -49,7 +56,7 @@ Route::middleware(['auth', 'verified', 'organization', 'company'])
         Route::resource('users', UserController::class)
             ->except(['show']);
 
-        Route::get('audit-logs', [\App\Http\Controllers\AuditLogController::class, 'index'])
+        Route::get('audit-logs', [AuditLogController::class, 'index'])
             ->middleware('permission:audit.view')
             ->name('audit-logs.index');
 
@@ -75,9 +82,78 @@ Route::middleware(['auth', 'verified', 'organization', 'company'])
         Route::post('attendance/correct', [AttendanceController::class, 'store'])
             ->middleware('permission:attendance.manage')
             ->name('attendance.store');
+        // Admin enters a full check-in + check-out pair in one step.
+        Route::post('attendance/in-out', [AttendanceController::class, 'storeInOut'])
+            ->middleware('permission:attendance.manage')
+            ->name('attendance.inout');
+        // Re-editable after entry (§24): corrections supersede the original
+        // event (never overwritten) and re-derive the affected day(s).
+        Route::get('attendance/events/{attendanceEvent}/edit', [AttendanceController::class, 'editEvent'])
+            ->middleware('permission:attendance.manage')
+            ->name('attendance.events.edit');
+        Route::put('attendance/events/{attendanceEvent}', [AttendanceController::class, 'updateEvent'])
+            ->middleware('permission:attendance.manage')
+            ->name('attendance.events.update');
+        Route::delete('attendance/events/{attendanceEvent}', [AttendanceController::class, 'destroyEvent'])
+            ->middleware('permission:attendance.manage')
+            ->name('attendance.events.destroy');
+        // No permission middleware: employees may always open their own record
+        // (ownership is enforced in the controller); viewing others requires
+        // attendance.view.
         Route::get('attendance/employee/{employee}', [AttendanceController::class, 'employee'])
-            ->middleware('permission:attendance.view')
             ->name('attendance.employee');
+
+        // Phase 3 — compensation: effective-dated salary records (§28).
+        Route::get('salary', [SalaryController::class, 'index'])
+            ->middleware('permission:salary.view')
+            ->name('salary.index');
+        // show enforces salary.view OR the employee's own salary.view_own.
+        Route::get('salary/{employee}', [SalaryController::class, 'show'])
+            ->name('salary.show');
+        Route::post('salary/{employee}', [SalaryController::class, 'store'])
+            ->middleware('permission:salary.edit')
+            ->name('salary.store');
+
+        // Finalized monthly payroll records (§28) with revision history.
+        Route::get('salary/{employee}/payslips/{payslip}', [PayslipController::class, 'show'])
+            ->name('payslips.show');
+        Route::post('salary/{employee}/payslips', [PayslipController::class, 'store'])
+            ->middleware('permission:salary.edit')
+            ->name('payslips.store');
+        Route::put('salary/{employee}/payslips/{payslip}', [PayslipController::class, 'revise'])
+            ->middleware('permission:salary.edit')
+            ->name('payslips.revise');
+
+        // No permission middleware: employees may always view their own
+        // monthly salary statistics (403 inside when no employee profile).
+        Route::get('statistics', [StatisticsController::class, 'index'])
+            ->name('statistics.index');
+
+        // In-app notification center (§25) — own rows only, no permission.
+        Route::get('notifications', [NotificationController::class, 'index'])
+            ->name('notifications.index');
+        Route::post('notifications/read-all', [NotificationController::class, 'markAllRead'])
+            ->name('notifications.readAll');
+        // Clicking a notification marks it read (idempotent) and returns.
+        Route::get('notifications/{id}', [NotificationController::class, 'markRead'])
+            ->name('notifications.read');
+
+        // Phase 3 — reporting (§41) and analytics dashboards.
+        Route::get('reports', [ReportController::class, 'attendance'])
+            ->middleware('permission:reports.view')
+            ->name('reports.attendance');
+        Route::get('reports/monthly', [ReportController::class, 'monthly'])
+            ->middleware('permission:reports.view')
+            ->name('reports.monthly');
+        Route::get('reports/salary', [ReportController::class, 'salary'])
+            ->middleware('permission:reports.view')
+            ->name('reports.salary');
+        Route::get('reports/{type}/export', [ReportController::class, 'export'])
+            ->middleware('permission:reports.view')
+            ->name('reports.export');
+        Route::get('analytics', [AnalyticsController::class, 'index'])
+            ->middleware('permission:reports.view')
+            ->name('analytics.index');
 
         Route::get('leave', [LeaveController::class, 'index'])
             ->middleware('permission:leave.view')
@@ -113,6 +189,12 @@ Route::middleware(['auth', 'verified', 'organization', 'company'])
         Route::post('nfc-cards/{nfcCard}/revoke', [NfcCardController::class, 'revoke'])
             ->middleware('permission:nfc.manage')
             ->name('nfc-cards.revoke');
+        Route::post('nfc-cards/{nfcCard}/replace', [NfcCardController::class, 'replace'])
+            ->middleware('permission:nfc.manage')
+            ->name('nfc-cards.replace');
+        Route::get('nfc-cards/{nfcCard}/history', [NfcCardController::class, 'history'])
+            ->middleware('permission:nfc.view')
+            ->name('nfc-cards.history');
 
         Route::get('terminals', [TerminalController::class, 'index'])
             ->middleware('permission:attendance.terminal')
