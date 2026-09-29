@@ -1,4 +1,4 @@
-# Employee Management SaaS (Phases 1–3)
+# Employee Management SaaS (Phases 1–4)
 
 Multi-tenant employee management platform built with Laravel 13, Livewire 3, and Breeze (Volt). Each registered organization (tenant) gets isolated employees, departments, users, roles, and audit logs.
 
@@ -6,7 +6,7 @@ Multi-tenant employee management platform built with Laravel 13, Livewire 3, and
 
 - PHP 8.4+ (extensions: pdo_sqlite, mbstring, openssl, curl, zip, fileinfo)
 - Composer 2
-- Node.js 20+ (for asset build)
+- Node.js 22 (for asset build)
 
 On Windows, `E:\employee-saas-setup.ps1` installs and scaffolds everything.
 
@@ -22,6 +22,15 @@ php artisan serve
 ```
 
 Open http://127.0.0.1:8000
+
+### Docker
+
+```bash
+cp .env.example .env      # optional — APP_KEY is generated on first boot
+docker compose up -d --build
+```
+
+Open http://localhost:8000 — the entrypoint generates `APP_KEY`, caches config/views, runs migrations, and seeds the plan catalog. SQLite lives in the `app-storage` volume (`SKIP_PLAN_SEEDING=true` / `RUN_MIGRATIONS=false` to opt out).
 
 ### Demo logins (password: `password`)
 
@@ -60,19 +69,26 @@ Open http://127.0.0.1:8000
 - **Reports (§41)**: Attendance (date/status/employee/department filters), Monthly (present/absent/late/leave/hours + totals), Salary (effective records; requires `reports.view` **and** `salary.view`) — CSV export for each, Excel/PDF via the browser
 - **Analytics**: 6-month attendance trend, department rates, weekday late pattern, payroll progress — pure CSS charts (`reports.view`; payroll card needs `salary.view`)
 
+### Phase 4 — Platform
+- **Notifications (§25/§7)**: DB + email via a shared Blade mail template for leave status changes, attendance corrections, NFC card status, salary updates, password changes, and once-per-day late-arrival alerts; in-app center (`/notifications`) with unread bell in the nav
+- **Billing (§54)**: FREE / STARTER / BUSINESS / ENTERPRISE plan catalog (`PlanSeeder`), per-org subscription + employee-count cap enforced on employee creation (`employee_limit`), plan switching with generated invoices, self-service Billing page (`settings.manage`); `BillingService` is decoupled from Stripe for later integration
+- **API v1 (§29/§55)**: `/api/v1/*` with Sanctum personal-access tokens (`POST /api/v1/login` → 30-day token), `EnsureApiOrganization` middleware (suspended orgs blocked), Eloquent API resources for users/employees/departments/attendance/leave/notifications/salary/audit, per-route `permission:` middleware mirroring the web UI
+- **Live attendance board (§19)**: `GET attendance/live` with Server-Sent Events stream (`GET attendance/live/stream`, bounded by `LIVE_STREAM_SECONDS`) plus a JSON polling fallback (`GET attendance/live/poll?after=<hash>`); running OVERTIME badge after the scheduled end of day; gated `attendance.view`
+- **Docker + CI**: multi-stage `Dockerfile` (composer + vite + php:8.4-apache) with boot entrypoint, `docker-compose.yml` (SQLite volume), and `.github/workflows/ci.yml` (Pint + PHPUnit + Vite build)
+
 ## Tests
 
 ```bash
-php artisan test        # 136 tests
+php artisan test        # 172 tests
 vendor/bin/pint app tests routes database bootstrap resources --format agent # code style
 ```
 
 ## Documentation
 
-- [docs/architecture.md](docs/architecture.md) — tenancy, middleware, request flow
+- [docs/architecture.md](docs/architecture.md) — tenancy, middleware, request flow, API, real-time
 - [docs/schema.md](docs/schema.md) — database tables and relationships
 - [docs/rbac.md](docs/rbac.md) — permission catalog and role matrix
-- [docs/roadmap.md](docs/roadmap.md) — Phases 4+ (Phases 1–3 complete)
+- [docs/roadmap.md](docs/roadmap.md) — Phases 1–4 (all complete)
 
 ## Environment Notes
 

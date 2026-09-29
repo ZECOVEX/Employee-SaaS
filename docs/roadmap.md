@@ -6,6 +6,8 @@ Phase 2 (workforce operations) is complete: attendance, NFC check-in, leave mana
 
 Phase 3 (compensation & insight) is complete: salary records, deduction rules + Statistics, payslips, reports/CSV, analytics.
 
+Phase 4 (platform) is complete: notifications, billing, API v1, real-time attendance board, Docker, CI.
+
 ## Phase 2 — Workforce operations ✅
 
 - ✅ Attendance tracking (NFC punch API, manual corrections, derived daily rows, late/early/overtime rules)
@@ -54,14 +56,17 @@ All four milestones done (tests: 136 green — SalaryTest 6, StatisticsTest 9, P
 
 Deferred to later phases (as specified): scoring §15/16, overtime payouts §73 `[OT]`, notifications §7, geo-login §71, global search §42, leave attachment.
 
-## Phase 4 — Platform
+## Phase 4 — Platform ✅
 
-- Billing & subscription (per-org plans)
-- Email/notification templates
-- WebSockets / real-time events
-- CI/CD pipelines
-- Docker images for app deploy
-- API (Eloquent API resources, versioning)
+All five milestones done (tests: 172 green — NotificationTest 9, BillingTest 9, ApiV1Test 11, AuditLogTest 2, LiveAttendanceTest 4, plus the Phase 1–3 suite):
+
+- ✅ **M1 Notifications (§7/§25)** — `notifications` table (Laravel default schema), shared Blade mail template `resources/views/mail/notification.blade.php`, base class `App\Notifications\OrganizationNotification` (`via()` returns `['database','mail']`); events: leave status changes, attendance corrections, NFC card status, salary updates, password changes, once-per-day late-arrival alert (`LateArrival`, fired by `AttendanceService` on the first late transition of a day); in-app center at `/notifications` (list, mark read, mark all, unread count), unread bell + dropdown in the nav (`notification.index` gated `auth` + `verified` + `company`)
+- ✅ **M2 Billing (§54)** — `plans` (global catalog: FREE 5 / STARTER 25 / BUSINESS 100 / ENTERPRISE unlimited employees, monthly prices 0/29/99/299), `subscriptions` (one active row per org, status `trial`/`active`/`past_due`/`canceled`, monthly period), `invoices` (`INV-{Ym}-{6}` unique, status `open`/`paid`/`void`); `BillingService` (provisionDefault on org create, `ensureCanAddEmployee` cap enforced in `EmployeeController@store`, `switchPlan` + `issueInvoice` for paid plans), `BillingController` + `resources/views/billing/index.blade.php` (current plan, usage bar, plan cards, invoice history), routes `billing.index`/`billing.plan` gated `settings.manage`; `PlanSeeder` runs in migrations/CI/Docker entrypoint
+- ✅ **M3 API v1 (§29/§55)** — Sanctum installed; `POST /api/v1/login` (returns 30-day `plainTextToken`), `GET /api/v1/me`; routes under `auth:sanctum` + `EnsureApiOrganization` (403 suspended org) + per-route `permission:` middleware; Eloquent API resources for users/employees/departments/attendance/leave/notifications/salary/audit; index endpoints support filters + pagination; NFC punch alias kept at `/api/v1/attendance/nfc/punch`; test helper `ApiV1Test::withToken()` resets cached `RequestGuard` user between requests
+- ✅ **M4 Live attendance board (§19)** — `config/live.php` (`LIVE_STREAM_SECONDS` default 30, `LIVE_POLL_INTERVAL` default 5); `LiveAttendanceBoard` service builds rows (name, department, status, time, overtime) with `Carbon::setTestNow`-friendly naive wall-clock math and `+HH:MM` overtime label; `LiveAttendanceController` (index SSR page, `stream` = SSE `response()->stream` with `retry: 3000` + JSON data events, closes after `live.stream_seconds`, `poll` = `md5` row-hash cursor returning `changed:false` when `after` matches); routes gated `attendance.view`; `resources/views/attendance/live.blade.php` (EventSource → on error falls back to polling, `@js()` URLs, badge colors incl. `ON LEAVE`); nav "Live board"
+- ✅ **M5 Docker + CI** — multi-stage `Dockerfile` (composer deps → node assets → `php:8.4-apache` runtime with `pdo_sqlite`/`pdo_mysql`, `a2enmod rewrite headers`, DocumentRoot → `/var/www/html/public`, `AllowOverride All`), `docker/entrypoint.sh` (APP_KEY generation, `storage:link`, config/view cache, migrations gated `RUN_MIGRATIONS`, plan seed gated `SKIP_PLAN_SEEDING`), `docker-compose.yml` (port 8000, `app-storage` volume keeps the SQLite DB across image rebuilds), `.dockerignore`, `.github/workflows/ci.yml` (Pint + PHPUnit on PHP 8.4, `npm ci` + `npm run build` on Node 22); smoke-tested: image builds, entrypoint migrates + seeds, `/`, `/login`, `/register` all return 200 through Apache
+
+Deferred from earlier phases (still open): scoring §15/16, overtime payouts §73, geo-login §71, global search §42, leave attachment, Stripe integration (billing is structured for it but decoupled).
 
 ## Standing decisions (locked)
 
@@ -70,4 +75,4 @@ Deferred to later phases (as specified): scoring §15/16, overtime payouts §73 
 | Project path | `E:\employee-saas` |
 | Frontend | Blade + Livewire (Volt), not Next.js |
 | Tenancy | Shared DB + `organization_id`, not stancl/tenancy |
-| Scope | Phases 1–3 complete; Phase 4 next |
+| Scope | Phases 1–4 complete |

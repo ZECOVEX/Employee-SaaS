@@ -4,10 +4,12 @@ use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\Auth\RegisteredOrganizationController;
+use App\Http\Controllers\BillingController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\LeaveController;
+use App\Http\Controllers\LiveAttendanceController;
 use App\Http\Controllers\NfcCardController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PayslipController;
@@ -73,9 +75,28 @@ Route::middleware(['auth', 'verified', 'organization', 'company'])
             ->middleware('permission:settings.manage')
             ->name('schedule.update');
 
+        // Phase 4 — billing & subscription (§54): plans, usage cap, invoices.
+        Route::get('billing', [BillingController::class, 'index'])
+            ->middleware('permission:settings.manage')
+            ->name('billing.index');
+        Route::post('billing/plan', [BillingController::class, 'updatePlan'])
+            ->middleware('permission:settings.manage')
+            ->name('billing.plan');
+
         Route::get('attendance', [AttendanceController::class, 'index'])
             ->middleware('permission:attendance.view')
             ->name('attendance.index');
+        // Phase 4 — live attendance board (§19): SSE stream + JSON poll
+        // fallback for hosts where event streaming is unavailable.
+        Route::get('attendance/live', [LiveAttendanceController::class, 'index'])
+            ->middleware('permission:attendance.view')
+            ->name('attendance.live.index');
+        Route::get('attendance/live/stream', [LiveAttendanceController::class, 'stream'])
+            ->middleware('permission:attendance.view')
+            ->name('attendance.live.stream');
+        Route::get('attendance/live/poll', [LiveAttendanceController::class, 'poll'])
+            ->middleware('permission:attendance.view')
+            ->name('attendance.live.poll');
         Route::get('attendance/correct', [AttendanceController::class, 'create'])
             ->middleware('permission:attendance.manage')
             ->name('attendance.create');

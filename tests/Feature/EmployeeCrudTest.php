@@ -183,4 +183,26 @@ class EmployeeCrudTest extends TestCase
 
         $this->assertNull($employee->fresh()->photo_path);
     }
+
+    public function test_employee_index_filters_by_department(): void
+    {
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
+        $admin = $this->makeUser($org, 'company_admin', $roles);
+        $engineering = $this->makeDepartment($org);
+        $sales = $this->makeDepartment($org, 'Sales');
+
+        $userA = $this->makeUser($org, 'employee', $roles, ['email' => 'filter-a@acme.test']);
+        $employeeA = $this->makeEmployee($org, $userA, 'EMP-FA');
+        $userB = $this->makeUser($org, 'employee', $roles, ['email' => 'filter-b@acme.test']);
+        $employeeB = $this->makeEmployee($org, $userB, 'EMP-FB');
+
+        $employeeA->update(['department_id' => $engineering->id]);
+        $employeeB->update(['department_id' => $sales->id]);
+
+        $this->actingAs($admin)
+            ->get(route('employees.index', ['department_id' => $engineering->id]))
+            ->assertOk()
+            ->assertSee('EMP-FA')
+            ->assertDontSee('EMP-FB');
+    }
 }

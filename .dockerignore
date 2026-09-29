@@ -1,0 +1,47 @@
+# VCS / tooling
+.git
+.github
+.claude
+.gitignore
+.gitattributes
+AGENTS.md
+CLAUDE.md
+docs
+idea.md
+README.md
+.phpunit.result.cache
+.phpunit.cache
+.mcp.json
+boost.json
+composer-setup.php
+debug_perms.php
+_diag.php
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+auth.json
+
+# Dependencies & build output
+vendor
+node_modules
+public/build
+public/hot
+public/storage
+
+# Local runtime state
+database/database.sqlite
+storage/logs/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+storage/pail
+*.log
+
+# Tests (CI runs them outside the image)
+tests
+phpunit.xml
+
+# Generated framework caches (entrypoint regenerates them)
+bootstrap/cache/*.php

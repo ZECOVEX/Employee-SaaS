@@ -5,6 +5,9 @@
 @endphp
 
 @if ($isCreate)
+    @error('employee_limit')
+        <div class="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{{ $message }}</div>
+    @enderror
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
             <x-input-label for="name" value="Full name" />

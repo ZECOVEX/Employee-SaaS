@@ -54,7 +54,18 @@ new class extends Component
             ],
             ['label' => 'Employees', 'route' => 'employees.index', 'active' => 'employees.*', 'can' => $can('employees.view')],
             ['label' => 'Departments', 'route' => 'departments.index', 'active' => 'departments.*', 'can' => $can('departments.view')],
-            ['label' => 'Attendance', 'route' => 'attendance.index', 'active' => 'attendance*', 'can' => $can('attendance.view')],
+            [
+                'label' => 'Attendance',
+                'route' => 'attendance.index',
+                'active' => ['attendance.index', 'attendance.create', 'attendance.employee', 'attendance.events.*'],
+                'can' => $can('attendance.view'),
+            ],
+            [
+                'label' => 'Live board',
+                'route' => 'attendance.live.index',
+                'active' => 'attendance.live*',
+                'can' => $can('attendance.view'),
+            ],
             ['label' => 'Leave', 'route' => 'leave.index', 'active' => 'leave*', 'can' => $can('leave.view')],
             ['label' => 'Salary', 'route' => 'salary.index', 'active' => 'salary.*', 'can' => $can('salary.view')],
             ['label' => 'NFC Cards', 'route' => 'nfc-cards.index', 'active' => 'nfc-cards.*', 'can' => $can('nfc.view')],
@@ -63,6 +74,7 @@ new class extends Component
             ['label' => 'Reports', 'route' => 'reports.attendance', 'active' => 'reports.*', 'can' => $can('reports.view')],
             ['label' => 'Analytics', 'route' => 'analytics.index', 'active' => 'analytics.*', 'can' => $can('reports.view')],
             ['label' => 'Settings', 'route' => 'settings.edit', 'active' => ['settings.*', 'schedule.*'], 'can' => $can('settings.manage')],
+            ['label' => 'Billing', 'route' => 'billing.index', 'active' => 'billing.*', 'can' => $can('settings.manage')],
             ['label' => 'Platform', 'route' => 'platform.organizations', 'active' => 'platform.*', 'can' => $user->is_platform_admin],
         ];
 

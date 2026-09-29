@@ -8,6 +8,7 @@ use App\Models\Organization;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\RoleSeederService;
+use Database\Seeders\PlanSeeder;
 
 trait CreatesOrganizations
 {
@@ -74,5 +75,11 @@ trait CreatesOrganizations
             'name' => $name,
             'code' => strtoupper(substr($name, 0, 3)),
         ]);
+    }
+
+    /** Load the platform plan catalog (§54) — billing tests only. */
+    protected function seedPlans(): void
+    {
+        $this->seed(PlanSeeder::class);
     }
 }

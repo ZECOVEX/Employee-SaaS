@@ -9,6 +9,7 @@ use App\Models\Role;
 use App\Models\SalaryRecord;
 use App\Models\User;
 use App\Services\AuditLogger;
+use App\Services\BillingService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -21,7 +22,10 @@ use Illuminate\View\View;
 
 class EmployeeController extends Controller
 {
-    public function __construct(private readonly AuditLogger $audit) {}
+    public function __construct(
+        private readonly AuditLogger $audit,
+        private readonly BillingService $billing,
+    ) {}
 
     public function index(Request $request): View
     {
@@ -40,7 +44,7 @@ class EmployeeController extends Controller
                             ->orWhere('email', 'like', "%{$term}%"));
                 });
             })
-            ->when($request->filled('department_id'), fn ($q, $r) => $q->where('department_id', $r->integer('department_id')))
+            ->when($request->filled('department_id'), fn ($q) => $q->where('department_id', $request->integer('department_id')))
             ->orderBy('employee_code')
             ->paginate(15)
             ->withQueryString();
@@ -86,6 +90,9 @@ class EmployeeController extends Controller
             'role_id' => ['nullable', Rule::exists('roles', 'id')
                 ->where('organization_id', $request->user()->organization_id)],
         ]);
+
+        // Plan headcount cap (§54) — no subscription/plan means no limit.
+        $this->billing->ensureCanAddEmployee($request->user()->organization_id);
 
         $user = null;
         $employee = null;

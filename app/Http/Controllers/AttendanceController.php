@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\AttendanceEvent;
 use App\Models\DailyAttendance;
 use App\Models\Employee;
+use App\Notifications\AttendanceCorrected;
 use App\Services\AttendanceService;
 use App\Services\AuditLogger;
 use Carbon\Carbon;
@@ -219,6 +220,20 @@ class AttendanceController extends Controller
             'reason' => $data['notes'],
         ]);
 
+        if ($employee->user_id !== $request->user()->id) {
+            $employee->user?->notify(new AttendanceCorrected(
+                $employee->id,
+                $replacement->occurred_at->toDateString(),
+                sprintf(
+                    '%s moved from %s to %s',
+                    $old['event_type'],
+                    Carbon::parse($old['occurred_at'])->format('Y-m-d H:i'),
+                    $occurredAt->format('Y-m-d H:i'),
+                ),
+                $data['notes'],
+            ));
+        }
+
         return redirect()
             ->route('attendance.index', ['date' => $replacement->occurred_at->toDateString()])
             ->with('status', 'Entry corrected — the day has been recalculated.');
@@ -247,6 +262,16 @@ class AttendanceController extends Controller
             'event_date' => $result['date'],
             'reason' => $data['reason'],
         ]);
+
+        $employee = $attendanceEvent->employee;
+        if ($employee->user_id !== $request->user()->id) {
+            $employee->user?->notify(new AttendanceCorrected(
+                $employee->id,
+                $result['date'],
+                sprintf('%s entry removed', $old['event_type']),
+                $data['reason'],
+            ));
+        }
 
         return redirect()
             ->route('attendance.index', ['date' => $result['date']])

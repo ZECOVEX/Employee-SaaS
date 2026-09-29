@@ -17,6 +17,7 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         app(RoleSeederService::class)->ensureCatalog();
+        $this->call(PlanSeeder::class);
 
         $organization = Organization::firstOrCreate(
             ['slug' => 'demo-company'],

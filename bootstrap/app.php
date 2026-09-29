@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\EnsureApiOrganization;
 use App\Http\Middleware\EnsureCompanyUser;
 use App\Http\Middleware\EnsurePermission;
 use App\Http\Middleware\EnsurePlatformAdmin;
@@ -22,6 +23,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'company' => EnsureCompanyUser::class,
             'permission' => EnsurePermission::class,
             'platform_admin' => EnsurePlatformAdmin::class,
+            'api_organization' => EnsureApiOrganization::class,
         ]);
 
         $middleware->web(append: [

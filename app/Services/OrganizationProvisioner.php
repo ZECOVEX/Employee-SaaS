@@ -15,6 +15,7 @@ class OrganizationProvisioner
     public function __construct(
         private readonly RoleSeederService $roles,
         private readonly WorkforceDefaults $defaults,
+        private readonly BillingService $billing,
     ) {}
 
     /**
@@ -70,6 +71,7 @@ class OrganizationProvisioner
             ]);
 
             $this->defaults->apply($organization);
+            $this->billing->provisionDefault($organization);
 
             return [
                 'organization' => $organization,

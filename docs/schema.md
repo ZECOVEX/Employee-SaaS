@@ -45,6 +45,13 @@ Defaults seeded per org by `WorkforceDefaults::apply()`: Standard schedule (Mon�
 - **salary_records** — `organization_id`, `employee_id`, `basic_salary`, `allowances`, `bonus`, `deductions`, `gross_salary`, `net_salary` (decimals 12,2), `effective_from`/`effective_to` (dates; `effective_to` nullable), `notes` (500, nullable), `created_by` (FK users, nullable) — effective-dated (§28): `SalaryRecord::effectiveFor(org, employee, date)` picks the latest row with `effective_from ≤ date` and `effective_to` null-or-≥ date, so a raise never rewrites earlier months (Salary Report and payslips both read through it); index (`organization_id`, `employee_id`, `effective_from`)
 - **payslips** — `organization_id`, `employee_id`, `period` (char7 `YYYY-MM`), `period_start`/`period_end`, `revision` (default 1), `currency`; earnings snapshot (`basic_salary`, `allowances`, `bonus`, `other_deductions`, `gross_salary`); attendance-deduction snapshot (`late_deduction`, `absence_deduction`, `unpaid_leave_deduction`, `attendance_deduction_total`, `net_salary`); month-end context §52 (`scheduled_days`, `completed_days`, `worked_minutes`, `late_minutes`, `overtime_minutes`, `daily_rate`, `hourly_rate`, `capped`); `snapshot` (json — full calculator output for reproducibility), `notes`, `superseded_by` (self-FK, nullable), `created_by` (FK users, nullable) — one **active** row per employee+period (`superseded_by IS NULL`, enforced in `PayslipController`); revising bumps `revision` and points the old row's `superseded_by` at the new one inside a transaction, so finalized numbers never move when salary records or rules change later; index (`organization_id`, `employee_id`, `period`)
 
+## Phase 4 — Platform tables
+- **notifications** — Laravel default schema: `id` (uuid), `type` (notification class), morph `notifiable_type`/`notifiable_id` (indexed), `data` (text), `read_at` (nullable); written by `App\Notifications\*` classes extending `OrganizationNotification` (via `['database','mail']`, shared mail template `resources/views/mail/notification.blade.php`) for leave status changes, attendance corrections, NFC card status, salary updates, password changes, and once-per-day late-arrival alerts (`LateArrival`, fired when a day first accrues late minutes)
+- **personal_access_tokens** — Sanctum: `name`, `token` (unique, sha256), `abilities` (json), `last_used_at`, `expires_at` (nullable); issued by `POST /api/v1/login` with a 30-day expiry
+- **plans** — platform-wide catalog (no `organization_id`): `slug` (40, unique: `free`/`starter`/`business`/`enterprise`), `name` (60), `employee_limit` (unsigned int, nullable = unlimited), `price_monthly` (decimal 8,2, default 0), `is_active`, timestamps — seeded by `PlanSeeder`
+- **subscriptions** — `organization_id` (unique — one subscription per org), `plan_id` (FK plans, cascade), `status` (20, default `active`; values `trial`/`active`/`past_due`/`canceled`), `trial_ends_at` (date, nullable), `current_period_start`, `current_period_end` (dates) — `BillingService::provisionDefault()` creates the `free` row at provisioning; `switchPlan()` updates in place and starts a fresh monthly period
+- **invoices** — `organization_id` (FK cascade), `plan_id` (FK plans, nullable, null-on-delete), `number` (40, unique, format `INV-{Ym}-{6 random}`), `amount` (decimal 8,2), `currency` (default `USD`), `status` (default `open`; `open`/`paid`/`void`), `period_start`/`period_end` (dates), `paid_at` (date, nullable), timestamps; index (`organization_id`, `status`) — issued on paid-plan selection
+
 ## Stock Breeze tables
 - `sessions`, `cache`, `cache_locks`, `jobs`, `job_batches`, `failed_jobs` (framework)
 
@@ -57,3 +64,7 @@ Defaults seeded per org by `WorkforceDefaults::apply()`: Standard schedule (Mon�
 - `nfc_cards` unique `card_token`
 - `daily_attendance` unique (`organization_id`, `employee_id`, `date`)
 - `leave_balances` unique (`organization_id`, `employee_id`, `leave_type_id`, `year`)
+- `plans.slug` global unique
+- `subscriptions` unique `organization_id` (one subscription per org)
+- `invoices.number` global unique
+- `personal_access_tokens.token` global unique

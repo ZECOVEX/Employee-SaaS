@@ -9,6 +9,7 @@ use App\Models\Employee;
 use App\Models\Holiday;
 use App\Models\NfcCard;
 use App\Models\WorkSchedule;
+use App\Notifications\LateArrival;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
@@ -396,6 +397,8 @@ class AttendanceService
             ->lockForUpdate()
             ->first();
 
+        $previousLateMinutes = (int) ($daily?->late_minutes ?? 0);
+
         $attributes = [
             'first_check_in' => $checkIn?->occurred_at,
             'last_check_out' => $checkOut?->occurred_at,
@@ -411,15 +414,32 @@ class AttendanceService
 
         if ($daily) {
             $daily->update($attributes);
+            $this->notifyLateTransition($employee, $date, $lateMinutes, $previousLateMinutes);
 
             return $daily;
         }
 
-        return DailyAttendance::withoutGlobalScopes()->create([
+        $created = DailyAttendance::withoutGlobalScopes()->create([
             'organization_id' => $employee->organization_id,
             'employee_id' => $employee->id,
             'date' => $date,
             ...$attributes,
         ]);
+        $this->notifyLateTransition($employee, $date, $lateMinutes, 0);
+
+        return $created;
+    }
+
+    /**
+     * §25 "Late arrival" — fires once when a day first accrues late minutes,
+     * not on every re-derivation of that day.
+     */
+    private function notifyLateTransition(Employee $employee, string $date, int $lateMinutes, int $previousLateMinutes): void
+    {
+        if ($lateMinutes <= 0 || $previousLateMinutes > 0) {
+            return;
+        }
+
+        $employee->user?->notify(new LateArrival($employee->id, $date, $lateMinutes));
     }
 }

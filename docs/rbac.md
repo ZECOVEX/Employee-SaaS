@@ -48,10 +48,20 @@ Platform admins (`users.is_platform_admin = 1`) bypass all permission checks (`G
 
 ## Enforcement points
 
-1. **Route middleware** — `permission:{key}` (e.g. `audit-logs` → `permission:audit.view`, `settings` → `permission:settings.manage`, `users` → `permission:users.view`)
+1. **Route middleware** — `permission:{key}` (e.g. `audit-logs` → `permission:audit.view`, `settings` → `permission:settings.manage`, `users` → `permission:users.view`, `attendance/live` → `permission:attendance.view`, `billing` → `permission:settings.manage`)
 2. **Controllers** — `Gate::authorize(...)` before writes (e.g. `employees.create`); read gates where the route middleware alone is not enough: the Salary Report (and its CSV) requires `reports.view` **and** `salary.view` (managers with `reports.view` only get 403), Statistics is self-only (403 without an employee profile), the analytics payroll card renders only with `salary.view`
-3. **Navigation** — sidebar links rendered only when `$user->canPermission($key)`
-4. **Gates** — registered dynamically in `AppServiceProvider` from `CATALOG`
+3. **API (v1)** — same `permission:{key}` middleware on `/api/v1/*` routes behind `auth:sanctum` (e.g. `GET /api/v1/employees` → `permission:employees.view`); the caller's own profile/notifications endpoints need no extra permission
+4. **Navigation** — sidebar links rendered only when `$user->canPermission($key)`
+5. **Gates** — registered dynamically in `AppServiceProvider` from `CATALOG`
+
+## Phase 4 — no new permission keys
+
+Notifications, billing, the API, and the live attendance board reuse the existing catalog rather than adding keys:
+
+- **Billing** (`billing.index` / `billing.plan`) → `settings.manage` (org-wide configuration territory)
+- **Live attendance board** (`attendance.live.*`) → `attendance.view`
+- **API v1** → mirrors the web route's key (`employees.view`, `attendance.view`, `leave.view`, `salary.view`, `audit.view`, …); `/api/v1/me` and `/api/v1/notifications` are self-service (own rows only)
+- **Notification center** → any authenticated verified company user (own rows only)
 
 ## Self-service exceptions (no extra permission needed)
 

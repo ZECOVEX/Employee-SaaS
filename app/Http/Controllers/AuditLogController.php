@@ -14,8 +14,8 @@ class AuditLogController extends Controller
         Gate::authorize('audit.view');
 
         $logs = AuditLog::with('actor:id,name,email')
-            ->when($request->filled('action'), fn ($q, $r) => $q->where('action', $r->string('action')->toString()))
-            ->when($request->filled('resource_type'), fn ($q, $r) => $q->where('resource_type', $r->string('resource_type')->toString()))
+            ->when($request->filled('action'), fn ($q) => $q->where('action', $request->string('action')->toString()))
+            ->when($request->filled('resource_type'), fn ($q) => $q->where('resource_type', $request->string('resource_type')->toString()))
             ->orderByDesc('id')
             ->paginate(25)
             ->withQueryString();

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\AttendanceEvent;
 use App\Models\Employee;
 use App\Models\NfcCard;
+use App\Notifications\NfcCardStatusChanged;
 use App\Services\AuditLogger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -108,6 +109,7 @@ class NfcCardController extends Controller
         $nfcCard->update(['status' => 'blocked']);
 
         $this->audit->log('nfc.blocked', $nfcCard, $old, ['status' => 'blocked']);
+        $nfcCard->employee?->user?->notify(new NfcCardStatusChanged('blocked', substr($nfcCard->card_token, -4)));
 
         return back()->with('status', 'Card blocked.');
     }
@@ -123,6 +125,7 @@ class NfcCardController extends Controller
         ]);
 
         $this->audit->log('nfc.revoked', $nfcCard, $old, ['status' => 'revoked', 'revoked_at' => now()]);
+        $nfcCard->employee?->user?->notify(new NfcCardStatusChanged('revoked', substr($nfcCard->card_token, -4)));
 
         return back()->with('status', 'Card revoked.');
     }
@@ -169,6 +172,8 @@ class NfcCardController extends Controller
             'new_card_token' => $newToken,
             'employee_id' => $nfcCard->employee_id,
         ]);
+
+        $nfcCard->employee?->user?->notify(new NfcCardStatusChanged('replaced', substr($oldToken, -4)));
 
         return redirect()
             ->route('nfc-cards.index')
