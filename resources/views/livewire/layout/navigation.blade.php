@@ -67,6 +67,9 @@ new class extends Component
                 'can' => $can('attendance.view'),
             ],
             ['label' => 'Leave', 'route' => 'leave.index', 'active' => 'leave*', 'can' => $can('leave.view')],
+            // Phase 5 — self-service overtime (no permission key) + approvals (§73-E/I).
+            ['label' => 'Overtime', 'route' => 'overtime.index', 'active' => 'overtime.index', 'can' => true],
+            ['label' => 'OT approvals', 'route' => 'overtime.queue', 'active' => 'overtime.queue', 'can' => $can('overtime.manage')],
             ['label' => 'Salary', 'route' => 'salary.index', 'active' => 'salary.*', 'can' => $can('salary.view')],
             ['label' => 'NFC Cards', 'route' => 'nfc-cards.index', 'active' => 'nfc-cards.*', 'can' => $can('nfc.view')],
             ['label' => 'Users', 'route' => 'users.index', 'active' => 'users.*', 'can' => $can('users.view')],

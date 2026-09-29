@@ -22,6 +22,8 @@ class AttendanceService
     /** Spec §72-B: a day with this many segments is flagged as an anomaly. */
     public const MAX_SEGMENTS = 15;
 
+    public function __construct(private readonly OvertimeService $overtime) {}
+
     /**
      * Process an NFC punch from a terminal.
      *
@@ -299,8 +301,11 @@ class AttendanceService
                 $openEnd = $now->copy();
             }
 
-            if ((int) $openFrom->diffInMinutes($openEnd) > self::MAX_SHIFT_MINUTES) {
-                $openEnd = $openFrom->copy()->addMinutes(self::MAX_SHIFT_MINUTES);
+            $maxShift = $this->overtime->policyFor((int) $employee->organization_id, $date)
+                ->max_shift_minutes ?: self::MAX_SHIFT_MINUTES;
+
+            if ((int) $openFrom->diffInMinutes($openEnd) > $maxShift) {
+                $openEnd = $openFrom->copy()->addMinutes($maxShift);
                 $reviewFlag ??= 'possible_missed_checkin';
             }
 
@@ -415,6 +420,9 @@ class AttendanceService
         if ($daily) {
             $daily->update($attributes);
             $this->notifyLateTransition($employee, $date, $lateMinutes, $previousLateMinutes);
+            // §73-C: overtime is derived after every (re)derivation of the day.
+            $this->overtime->recalculate($employee, $date);
+            $daily->refresh();
 
             return $daily;
         }
@@ -426,6 +434,8 @@ class AttendanceService
             ...$attributes,
         ]);
         $this->notifyLateTransition($employee, $date, $lateMinutes, 0);
+        $this->overtime->recalculate($employee, $date);
+        $created->refresh();
 
         return $created;
     }

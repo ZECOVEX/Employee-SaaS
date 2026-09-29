@@ -12,6 +12,8 @@ use App\Http\Controllers\LeaveController;
 use App\Http\Controllers\LiveAttendanceController;
 use App\Http\Controllers\NfcCardController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\OvertimeController;
+use App\Http\Controllers\OvertimePolicyController;
 use App\Http\Controllers\PayslipController;
 use App\Http\Controllers\PlatformController;
 use App\Http\Controllers\ReportController;
@@ -74,6 +76,31 @@ Route::middleware(['auth', 'verified', 'organization', 'company'])
         Route::put('settings/schedule', [ScheduleController::class, 'update'])
             ->middleware('permission:settings.manage')
             ->name('schedule.update');
+        // Phase 5 — My Overtime (§73-I). No permission key: the page only
+        // lists the signed-in user's own records (like attendance.employee).
+        Route::get('overtime', [OvertimeController::class, 'index'])
+            ->name('overtime.index');
+        // §73-E approval workflow — managers decide their team, HR/admin all.
+        Route::get('overtime/queue', [OvertimeController::class, 'queue'])
+            ->middleware('permission:overtime.manage')
+            ->name('overtime.queue');
+        Route::post('overtime/{overtimeRecord}/approve', [OvertimeController::class, 'approve'])
+            ->middleware('permission:overtime.manage')
+            ->name('overtime.approve');
+        Route::post('overtime/{overtimeRecord}/reject', [OvertimeController::class, 'reject'])
+            ->middleware('permission:overtime.manage')
+            ->name('overtime.reject');
+        Route::post('overtime/{overtimeRecord}/adjust', [OvertimeController::class, 'adjust'])
+            ->middleware('permission:overtime.manage')
+            ->name('overtime.adjust');
+
+        // Phase 5 — effective-dated overtime policy (§73-G).
+        Route::get('settings/overtime', [OvertimePolicyController::class, 'edit'])
+            ->middleware('permission:settings.manage')
+            ->name('overtime-policy.edit');
+        Route::put('settings/overtime', [OvertimePolicyController::class, 'update'])
+            ->middleware('permission:settings.manage')
+            ->name('overtime-policy.update');
 
         // Phase 4 — billing & subscription (§54): plans, usage cap, invoices.
         Route::get('billing', [BillingController::class, 'index'])

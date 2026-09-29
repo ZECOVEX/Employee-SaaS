@@ -39,6 +39,9 @@ class RoleSeederService
         'attendance.manage' => ['Manage attendance and corrections', 'attendance'],
         'attendance.terminal' => ['Manage attendance terminals', 'attendance'],
 
+        'overtime.view' => ['View overtime', 'overtime'],
+        'overtime.manage' => ['Approve or reject overtime', 'overtime'],
+
         'leave.view' => ['View leave requests', 'leave'],
         'leave.manage' => ['Manage leave types and balances', 'leave'],
         'leave.approve' => ['Approve or reject leave', 'leave'],
@@ -69,6 +72,7 @@ class RoleSeederService
             'departments.view', 'departments.manage', 'positions.manage',
             'audit.view',
             'attendance.view', 'attendance.manage', 'attendance.terminal',
+            'overtime.view', 'overtime.manage',
             'leave.view', 'leave.manage', 'leave.approve',
             'nfc.view', 'nfc.manage',
             'salary.view', 'salary.edit',
@@ -81,6 +85,7 @@ class RoleSeederService
             'employees.view', 'employees.create', 'employees.edit',
             'departments.view', 'departments.manage',
             'attendance.view', 'attendance.manage',
+            'overtime.view', 'overtime.manage',
             'leave.view', 'leave.manage', 'leave.approve',
             'nfc.view',
             'salary.view',
@@ -92,6 +97,7 @@ class RoleSeederService
             'employees.view', 'employees.view_team',
             'departments.view',
             'attendance.view',
+            'overtime.view', 'overtime.manage',
             'leave.view', 'leave.approve',
             'reports.view',
             'dashboard.admin',

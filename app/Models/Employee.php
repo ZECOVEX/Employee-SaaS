@@ -25,10 +25,17 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'emergency_contact_phone',
     'joining_date',
     'photo_path',
+    'overtime_eligibility',
 ])]
 class Employee extends Model
 {
     use BelongsToOrganization;
+
+    public const OT_POLICY_DEFAULT = 'POLICY_DEFAULT';
+
+    public const OT_ELIGIBLE = 'ELIGIBLE';
+
+    public const OT_NOT_ELIGIBLE = 'NOT_ELIGIBLE';
 
     protected function casts(): array
     {
@@ -66,5 +73,19 @@ class Employee extends Model
     public function payslips(): HasMany
     {
         return $this->hasMany(Payslip::class);
+    }
+
+    /**
+     * §73-G per-employee overtime override: NOT_ELIGIBLE never counts,
+     * ELIGIBLE counts even when the policy is disabled, POLICY_DEFAULT
+     * follows the policy's enabled flag.
+     */
+    public function isOvertimeEligible(OvertimePolicy $policy): bool
+    {
+        return match ($this->overtime_eligibility ?? self::OT_POLICY_DEFAULT) {
+            self::OT_NOT_ELIGIBLE => false,
+            self::OT_ELIGIBLE => true,
+            default => $policy->enabled,
+        };
     }
 }
