@@ -155,7 +155,12 @@
                     </dl>
                     @if ($payslip->overtime_minutes > 0)
                         <p class="mt-3 text-xs text-gray-500">
-                            Overtime: {{ $payslip->overtime_minutes }} minutes (informational — overtime pay policy arrives in a later phase).
+                            Overtime: {{ $payslip->overtime_minutes }} minutes approved
+                            @if (($payslip->snapshot['overtime_pay'] ?? 0) > 0)
+                                — pay included: {{ number_format($payslip->snapshot['overtime_pay'], 2) }}
+                            @else
+                                (comp time accrued instead of pay)
+                            @endif
                         </p>
                     @endif
                 </div>

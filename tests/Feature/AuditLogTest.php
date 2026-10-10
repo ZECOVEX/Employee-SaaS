@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\AuditLog;
 use App\Services\AuditLogger;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\CreatesOrganizations;
@@ -10,6 +11,54 @@ use Tests\TestCase;
 class AuditLogTest extends TestCase
 {
     use CreatesOrganizations, RefreshDatabase;
+
+    public function test_platform_status_toggle_lands_in_the_target_tenants_trail(): void
+    {
+        ['organization' => $target] = $this->makeOrganization('Target Co');
+        ['organization' => $home, 'roles' => $homeRoles] = $this->makeOrganization('Home Co');
+        $platform = $this->makeUser($home, 'company_admin', $homeRoles, ['is_platform_admin' => true]);
+
+        $this->actingAs($platform)
+            ->patch(route('platform.organizations.status', $target))
+            ->assertRedirect();
+
+        $log = AuditLog::withoutGlobalScopes()
+            ->where('action', 'organization.status_changed')
+            ->firstOrFail();
+
+        // The resource's organization wins over the actor's own tenant (§24).
+        $this->assertSame($target->id, $log->organization_id);
+        $this->assertSame('Organization', $log->resource_type);
+        $this->assertSame($target->id, (int) $log->resource_id);
+        $this->assertSame('active', $log->old_value['status']);
+        $this->assertSame('suspended', $log->new_value['status']);
+    }
+
+    public function test_user_role_change_audit_carries_role_slugs(): void
+    {
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
+        $admin = $this->makeUser($org, 'company_admin', $roles);
+        $target = $this->makeUser($org, 'employee', $roles);
+
+        $this->actingAs($admin)
+            ->put(route('users.update', $target), [
+                'name' => $target->name,
+                'email' => $target->email,
+                'role_id' => $roles['hr']->id,
+            ])
+            ->assertRedirect(route('users.index'));
+
+        $log = AuditLog::withoutGlobalScopes()
+            ->where('action', 'user.updated')
+            ->firstOrFail();
+
+        $this->assertSame($org->id, $log->organization_id);
+        $this->assertSame('User', $log->resource_type);
+        $this->assertSame($target->id, (int) $log->resource_id);
+        // Readable slug diff — not ids (A6).
+        $this->assertSame(['employee'], $log->old_value['roles']);
+        $this->assertSame(['hr'], $log->new_value['roles']);
+    }
 
     public function test_audit_index_filters_by_action_and_resource_type(): void
     {

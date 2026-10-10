@@ -30,6 +30,12 @@ new class extends Component
         return $user->notifications()->latest()->take(5)->get()->all();
     }
 
+    /**
+     * Nested navigation tree: top-level link or group > sub-navlink >
+     * sub-sub-navlink (e.g. Attendance > Devices > NFC Cards / Terminals).
+     * Groups without visible children are dropped; groups with a single
+     * visible child collapse to that plain link (see prune()).
+     */
     public function links(): array
     {
         $user = auth()->user();
@@ -45,6 +51,28 @@ new class extends Component
 
         $can = fn (string $p) => $user->canPermission($p);
 
+        // Employees without attendance.view still need their own history.
+        $myAttendance = ($user->employee && ! $can('attendance.view'))
+            ? [[
+                'label' => 'My Attendance',
+                'route' => 'attendance.employee',
+                'params' => ['employee' => $user->employee->id],
+                'active' => 'attendance.employee',
+                'can' => true,
+            ]]
+            : [];
+
+        // Self-service salary view (salary.view_own, no salary.view).
+        $mySalary = ($user->employee && ! $can('salary.view') && $can('salary.view_own'))
+            ? [[
+                'label' => 'My Salary',
+                'route' => 'salary.show',
+                'params' => ['employee' => $user->employee->id],
+                'active' => 'salary.show',
+                'can' => true,
+            ]]
+            : [];
+
         $links = [
             [
                 'label' => 'Dashboard',
@@ -52,68 +80,115 @@ new class extends Component
                 'active' => 'dashboard*',
                 'can' => true,
             ],
-            ['label' => 'Employees', 'route' => 'employees.index', 'active' => 'employees.*', 'can' => $can('employees.view')],
-            ['label' => 'Departments', 'route' => 'departments.index', 'active' => 'departments.*', 'can' => $can('departments.view')],
+            [
+                'label' => 'Employees',
+                'active' => ['employees.*', 'departments.*', 'positions.*', 'users.*'],
+                'children' => [
+                    ['label' => 'Employees', 'route' => 'employees.index', 'active' => 'employees.*', 'can' => $can('employees.view')],
+                    ['label' => 'Departments', 'route' => 'departments.index', 'active' => 'departments.*', 'can' => $can('departments.view')],
+                    ['label' => 'Positions', 'route' => 'positions.index', 'active' => 'positions.*', 'can' => $can('positions.manage')],
+                    ['label' => 'Users', 'route' => 'users.index', 'active' => 'users.*', 'can' => $can('users.view')],
+                ],
+            ],
             [
                 'label' => 'Attendance',
-                'route' => 'attendance.index',
-                'active' => ['attendance.index', 'attendance.create', 'attendance.employee', 'attendance.events.*'],
-                'can' => $can('attendance.view'),
-            ],
-            [
-                'label' => 'Live board',
-                'route' => 'attendance.live.index',
-                'active' => 'attendance.live*',
-                'can' => $can('attendance.view'),
+                'active' => ['attendance.index', 'attendance.create', 'attendance.employee', 'attendance.events.*', 'attendance.live*', 'nfc-cards.*', 'terminals.*'],
+                'children' => array_merge([
+                    ['label' => 'Attendance', 'route' => 'attendance.index', 'active' => ['attendance.index', 'attendance.create', 'attendance.employee', 'attendance.events.*'], 'can' => $can('attendance.view')],
+                    ['label' => 'Live board', 'route' => 'attendance.live.index', 'active' => 'attendance.live*', 'can' => $can('attendance.view')],
+                    [
+                        'label' => 'Devices',
+                        'active' => ['nfc-cards.*', 'terminals.*'],
+                        'children' => [
+                            ['label' => 'NFC Cards', 'route' => 'nfc-cards.index', 'active' => 'nfc-cards.*', 'can' => $can('nfc.view')],
+                            ['label' => 'Terminals', 'route' => 'terminals.index', 'active' => 'terminals.*', 'can' => $can('attendance.terminal')],
+                        ],
+                    ],
+                ], $myAttendance),
             ],
             ['label' => 'Leave', 'route' => 'leave.index', 'active' => 'leave*', 'can' => $can('leave.view')],
-            // Phase 5 — self-service overtime (no permission key) + approvals (§73-E/I).
-            ['label' => 'Overtime', 'route' => 'overtime.index', 'active' => 'overtime.index', 'can' => true],
-            ['label' => 'OT approvals', 'route' => 'overtime.queue', 'active' => 'overtime.queue', 'can' => $can('overtime.manage')],
-            ['label' => 'Salary', 'route' => 'salary.index', 'active' => 'salary.*', 'can' => $can('salary.view')],
-            ['label' => 'NFC Cards', 'route' => 'nfc-cards.index', 'active' => 'nfc-cards.*', 'can' => $can('nfc.view')],
-            ['label' => 'Users', 'route' => 'users.index', 'active' => 'users.*', 'can' => $can('users.view')],
-            ['label' => 'Audit Logs', 'route' => 'audit-logs.index', 'active' => 'audit-logs.*', 'can' => $can('audit.view')],
-            ['label' => 'Reports', 'route' => 'reports.attendance', 'active' => 'reports.*', 'can' => $can('reports.view')],
-            ['label' => 'Analytics', 'route' => 'analytics.index', 'active' => 'analytics.*', 'can' => $can('reports.view')],
-            ['label' => 'Settings', 'route' => 'settings.edit', 'active' => ['settings.*', 'schedule.*'], 'can' => $can('settings.manage')],
-            ['label' => 'Billing', 'route' => 'billing.index', 'active' => 'billing.*', 'can' => $can('settings.manage')],
+            // Phase 5 - self-service overtime (no permission key) + approvals.
+            [
+                'label' => 'Overtime',
+                'active' => ['overtime.index', 'overtime.queue'],
+                'children' => [
+                    ['label' => 'Overtime', 'route' => 'overtime.index', 'active' => 'overtime.index', 'can' => true],
+                    ['label' => 'OT approvals', 'route' => 'overtime.queue', 'active' => 'overtime.queue', 'can' => $can('overtime.manage')],
+                ],
+            ],
+            [
+                'label' => 'Salary',
+                'active' => 'salary.*',
+                'children' => array_merge([
+                    ['label' => 'Salary', 'route' => 'salary.index', 'active' => 'salary.*', 'can' => $can('salary.view')],
+                ], $mySalary),
+            ],
+            // Self-service monthly statistics - own numbers only.
+            ['label' => 'Statistics', 'route' => 'statistics.index', 'active' => 'statistics.*', 'can' => (bool) $user->employee],
+            // Personal inbox — also reachable from the desktop bell dropdown,
+            // but the mobile menu needs its own entry (§64).
+            ['label' => 'Notifications', 'route' => 'notifications.index', 'active' => 'notifications.*', 'can' => true],
+            [
+                'label' => 'Reports',
+                'active' => ['reports.attendance', 'reports.monthly', 'reports.overtime', 'reports.salary', 'analytics.*'],
+                'children' => [
+                    ['label' => 'Attendance Report', 'route' => 'reports.attendance', 'active' => 'reports.attendance', 'can' => $can('reports.view')],
+                    ['label' => 'Monthly Report', 'route' => 'reports.monthly', 'active' => 'reports.monthly', 'can' => $can('reports.view')],
+                    ['label' => 'Overtime Report', 'route' => 'reports.overtime', 'active' => 'reports.overtime', 'can' => $can('reports.view')],
+                    ['label' => 'Salary Report', 'route' => 'reports.salary', 'active' => 'reports.salary', 'can' => $can('reports.view') && $can('salary.view')],
+                    ['label' => 'Analytics', 'route' => 'analytics.index', 'active' => 'analytics.*', 'can' => $can('reports.view')],
+                ],
+            ],
+            [
+                'label' => 'Settings',
+                'active' => ['settings.*', 'schedule.*', 'audit-logs.*', 'billing.*'],
+                'children' => [
+                    ['label' => 'Settings', 'route' => 'settings.edit', 'active' => ['settings.*', 'schedule.*'], 'can' => $can('settings.manage')],
+                    ['label' => 'Audit Logs', 'route' => 'audit-logs.index', 'active' => 'audit-logs.*', 'can' => $can('audit.view')],
+                    ['label' => 'Billing', 'route' => 'billing.index', 'active' => 'billing.*', 'can' => $can('settings.manage')],
+                ],
+            ],
             ['label' => 'Platform', 'route' => 'platform.organizations', 'active' => 'platform.*', 'can' => $user->is_platform_admin],
         ];
 
-        // Employees without attendance.view still need their own history (§4).
-        if ($user->employee && ! $can('attendance.view')) {
-            $links[] = [
-                'label' => 'My Attendance',
-                'route' => 'attendance.employee',
-                'params' => ['employee' => $user->employee->id],
-                'active' => 'attendance.employee',
-                'can' => true,
-            ];
+        return $this->prune($links);
+    }
+
+    /**
+     * Drop items the user cannot see, collapse a group whose only visible
+     * child is a plain link into that link, and remove empty groups so the
+     * bar stays flat where there is nothing to nest.
+     */
+    private function prune(array $items): array
+    {
+        $out = [];
+
+        foreach ($items as $item) {
+            if (! isset($item['children'])) {
+                if ($item['can']) {
+                    $out[] = $item;
+                }
+
+                continue;
+            }
+
+            $children = $this->prune($item['children']);
+
+            if ($children === []) {
+                continue;
+            }
+
+            if (count($children) === 1 && ! isset($children[0]['children'])) {
+                $out[] = $children[0];
+
+                continue;
+            }
+
+            $item['children'] = $children;
+            $out[] = $item;
         }
 
-        // Self-service salary view (salary.view_own, no salary.view).
-        if ($user->employee && ! $can('salary.view') && $can('salary.view_own')) {
-            $links[] = [
-                'label' => 'My Salary',
-                'route' => 'salary.show',
-                'params' => ['employee' => $user->employee->id],
-                'active' => 'salary.show',
-                'can' => true,
-            ];
-        }
-
-        // Self-service monthly statistics (§28) — own numbers only.
-        if ($user->employee) {
-            $links[] = [
-                'label' => 'Statistics',
-                'route' => 'statistics.index',
-                'active' => 'statistics.*',
-                'can' => true,
-            ];
-        }
-
-        return $links;
+        return $out;
     }
 }; ?>
 
@@ -129,11 +204,7 @@ new class extends Component
 
                 <div class="hidden space-x-6 sm:-my-px sm:ms-10 sm:flex">
                     @foreach ($this->links() as $link)
-                        @if ($link['can'])
-                            <x-nav-link :href="route($link['route'], $link['params'] ?? [])" :active="request()->routeIs($link['active'])" wire:navigate>
-                                {{ $link['label'] }}
-                            </x-nav-link>
-                        @endif
+                        @include('livewire.layout.partials.desktop-item', ['item' => $link])
                     @endforeach
                 </div>
             </div>
@@ -143,6 +214,61 @@ new class extends Component
                     <span class="me-3 text-xs text-gray-500 uppercase tracking-wide">
                         {{ $currentOrganization->name }}
                     </span>
+                @endif
+
+                @if (auth()->user()?->canPermission('employees.view') || auth()->user()?->canPermission('nfc.view'))
+                    <div class="relative me-2"
+                         x-data="{
+                             q: '',
+                             results: null,
+                             open: false,
+                             async search() {
+                                 if (this.q.trim().length < 2) {
+                                     this.results = null;
+                                     this.open = false;
+
+                                     return;
+                                 }
+                                 const response = await fetch('{{ route('search.index') }}?q=' + encodeURIComponent(this.q), { headers: { 'Accept': 'application/json' } });
+                                 if (response.ok) {
+                                     this.results = await response.json();
+                                     this.open = true;
+                                 }
+                             }
+                         }"
+                         @click.outside="open = false">
+                        <input type="search" x-model="q" @input.debounce.300ms="search()" @focus="open = !!results"
+                               placeholder="Search…" aria-label="Search employees and cards"
+                               class="w-40 lg:w-56 border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm text-sm" />
+                        <div x-show="open && results" style="display: none;"
+                             class="absolute end-0 top-full z-50 mt-1 w-80 max-h-96 overflow-auto rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5">
+                            <template x-if="results && (results.employees.length > 0 || results.cards.length > 0)">
+                                <div>
+                                    <template x-for="employee in results.employees" :key="'employee-' + employee.id">
+                                        <a :href="employee.url" wire:navigate @click="open = false"
+                                           class="block px-4 py-2 hover:bg-gray-50">
+                                            <span class="text-sm font-medium text-gray-800" x-text="employee.name"></span>
+                                            <span class="ms-2 text-xs text-gray-400" x-text="employee.code"></span>
+                                            <span class="block text-xs text-gray-500">
+                                                <span x-text="employee.department || ''"></span><template x-if="employee.designation"><span> &middot; <span x-text="employee.designation"></span></span></template>
+                                            </span>
+                                        </a>
+                                    </template>
+                                    <template x-for="card in results.cards" :key="'card-' + card.token">
+                                        <a :href="card.url" wire:navigate @click="open = false"
+                                           class="block px-4 py-2 hover:bg-gray-50 border-t border-gray-100">
+                                            <span class="text-sm font-medium text-gray-800" x-text="card.token"></span>
+                                            <span class="ms-2 text-xs uppercase text-gray-400" x-text="card.status"></span>
+                                            <span class="block text-xs text-gray-500" x-text="card.employee || 'Unassigned'"></span>
+                                        </a>
+                                    </template>
+                                </div>
+                            </template>
+                            <template x-if="results && results.employees.length === 0 && results.cards.length === 0">
+                                <div class="px-4 py-3 text-sm text-gray-500">No matches.</div>
+                            </template>
+                        </div>
+                    </div>
                 @endif
 
                 <x-dropdown align="right" width="80">
@@ -220,11 +346,7 @@ new class extends Component
     <div :class="{'block': open, 'hidden': ! open}" class="hidden sm:hidden">
         <div class="pt-2 pb-3 space-y-1">
             @foreach ($this->links() as $link)
-                @if ($link['can'])
-                    <x-responsive-nav-link :href="route($link['route'], $link['params'] ?? [])" :active="request()->routeIs($link['active'])" wire:navigate>
-                        {{ $link['label'] }}
-                    </x-responsive-nav-link>
-                @endif
+                @include('livewire.layout.partials.mobile-item', ['item' => $link])
             @endforeach
         </div>
 

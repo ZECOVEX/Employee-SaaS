@@ -6,6 +6,7 @@ use App\Models\DailyAttendance;
 use App\Models\Employee;
 use App\Models\Holiday;
 use App\Models\LeaveRequest;
+use App\Models\OvertimeRecord;
 use App\Models\SalaryRecord;
 use App\Models\WorkSchedule;
 use Carbon\Carbon;
@@ -17,6 +18,10 @@ use Carbon\Carbon;
  * schedule per day, daily attendance rows and approved leave. All money
  * outputs follow the organization's configurable deduction rules
  * (grace, method, rounding, absence/half-day treatment, unpaid leave, cap).
+ *
+ * Overtime (§73): approved overtime pay is a separate line item included in
+ * earnings/net, pending overtime is reported as potential only, and late
+ * minutes absorbed by the late-offset rule are not deducted (§73-D).
  */
 class SalaryCalculator
 {
@@ -69,6 +74,13 @@ class SalaryCalculator
         $leave = $this->leaveCoverage($employee, $start, $end);
         $holidays = $this->holidaySet($org->id, $start, $end);
 
+        $overtime = OvertimeRecord::withoutGlobalScopes()
+            ->where('employee_id', $employee->id)
+            ->whereDate('work_date', '>=', $start)
+            ->whereDate('work_date', '<=', $end)
+            ->get()
+            ->keyBy(fn (OvertimeRecord $record) => $record->work_date->toDateString());
+
         // Pass 1 — classify every calendar day of the period.
         $entries = [];
         $scheduledDays = 0;
@@ -95,6 +107,7 @@ class SalaryCalculator
                 'worked' => $row?->total_work_minutes ?? 0,
                 'late' => $row?->late_minutes ?? 0,
                 'overtime' => $row?->overtime_minutes ?? 0,
+                'late_offset' => (int) ($overtime->get($date)?->late_offset_minutes ?? 0),
             ];
 
             $cursor->addDay();
@@ -113,7 +126,7 @@ class SalaryCalculator
         $capped = false;
 
         $totals = [
-            'worked' => 0, 'late' => 0, 'overtime' => 0,
+            'worked' => 0, 'late' => 0, 'overtime' => 0, 'late_offset' => 0,
             'present' => 0, 'late_days' => 0, 'half' => 0, 'absent' => 0,
             'leave' => 0, 'unpaid_leave' => 0,
             'late_deduction' => 0.0, 'absence_deduction' => 0.0, 'unpaid_leave_deduction' => 0.0,
@@ -161,7 +174,10 @@ class SalaryCalculator
                 if ($rules['late_deduction'] === 'per_minute'
                     && $row->late_minutes > 0
                     && $isAttendedScheduled) {
-                    $applicable = max(0, $row->late_minutes - (int) $rules['deduction_grace_minutes']);
+                    // §73-D: minutes absorbed by the overtime late-offset rule
+                    // are not deducted — offset first, then the grace window.
+                    $effectiveLate = max(0, $row->late_minutes - $entry['late_offset']);
+                    $applicable = max(0, $effectiveLate - (int) $rules['deduction_grace_minutes']);
                     $latePart = ($applicable / 60) * $hourlyRate;
                 }
             } elseif ($entry['scheduled'] && ! $entry['future'] && $entry['leave'] !== null) {
@@ -190,6 +206,7 @@ class SalaryCalculator
             $totals['worked'] += $entry['worked'];
             $totals['late'] += $entry['late'];
             $totals['overtime'] += $entry['overtime'];
+            $totals['late_offset'] += $entry['late_offset'];
 
             // Monthly cap on attendance deductions, applied oldest-day-first so
             // the breakdown rows always sum to the reported totals.
@@ -216,6 +233,7 @@ class SalaryCalculator
                 'status' => $status,
                 'worked_minutes' => $entry['worked'],
                 'late_minutes' => $entry['late'],
+                'late_offset_minutes' => $entry['late_offset'],
                 'overtime_minutes' => $entry['overtime'],
                 'deduction' => round($latePart + $absencePart + $unpaidPart, 2),
             ];
@@ -225,6 +243,30 @@ class SalaryCalculator
         $absenceDeduction = round($totals['absence_deduction'], 2);
         $unpaidDeduction = round($totals['unpaid_leave_deduction'], 2);
         $attendanceTotal = round($lateDeduction + $absenceDeduction + $unpaidDeduction, 2);
+
+        // §73-F line 3175: overtime pay is a separate line item — included in
+        // net only when APPROVED (AUTO_APPROVED counts); pending is "potential"
+        // and excluded. COMP_TIME records carry estimated_pay 0 by design.
+        $overtimePay = 0.0;
+        $potentialOvertimePay = 0.0;
+
+        foreach ($overtime as $overtimeRecord) {
+            if ($overtimeRecord->estimated_pay <= 0) {
+                continue;
+            }
+
+            if (in_array($overtimeRecord->status, [
+                OvertimeRecord::STATUS_APPROVED,
+                OvertimeRecord::STATUS_AUTO_APPROVED,
+            ], true)) {
+                $overtimePay += (float) $overtimeRecord->estimated_pay;
+            } elseif (in_array($overtimeRecord->status, [OvertimeRecord::STATUS_PENDING, OvertimeRecord::STATUS_EXPIRED], true)) {
+                $potentialOvertimePay += (float) $overtimeRecord->estimated_pay;
+            }
+        }
+
+        $overtimePay = round($overtimePay, 2);
+        $potentialOvertimePay = round($potentialOvertimePay, 2);
 
         return [
             'month' => $month,
@@ -255,9 +297,12 @@ class SalaryCalculator
             'absence_deduction' => $absenceDeduction,
             'unpaid_leave_deduction' => $unpaidDeduction,
             'attendance_deduction_total' => $attendanceTotal,
+            'late_offset_minutes' => $totals['late_offset'],
+            'overtime_pay' => $overtimePay,
+            'potential_overtime_pay' => $potentialOvertimePay,
             'capped' => $capped,
-            'estimated_earnings' => round($monthlyBase + $record->bonus, 2),
-            'estimated_net' => round($monthlyBase + $record->bonus - $attendanceTotal - $record->deductions, 2),
+            'estimated_earnings' => round($monthlyBase + $record->bonus + $overtimePay, 2),
+            'estimated_net' => round($monthlyBase + $record->bonus + $overtimePay - $attendanceTotal - $record->deductions, 2),
             'breakdown' => $breakdown,
         ];
     }

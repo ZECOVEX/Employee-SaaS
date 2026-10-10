@@ -100,6 +100,19 @@ class AttendanceController extends Controller
             'notes' => $data['notes'],
         ]);
 
+        if ($employee->user_id !== $request->user()->id) {
+            $employee->user?->notify(new AttendanceCorrected(
+                $employee->id,
+                $occurredAt->toDateString(),
+                sprintf(
+                    '%s entry added at %s',
+                    $data['event_type'],
+                    $occurredAt->format('Y-m-d H:i'),
+                ),
+                $data['notes'],
+            ));
+        }
+
         return redirect()
             ->route('attendance.index', ['date' => $occurredAt->toDateString()])
             ->with('status', 'Attendance corrected.');
@@ -156,6 +169,23 @@ class AttendanceController extends Controller
                 'notes' => $data['inout_notes'],
                 'entry' => 'check_in_check_out',
             ]);
+        }
+
+        if ($employee->user_id !== $request->user()->id) {
+            $recorded = [];
+            if ($data['inout_check_in']) {
+                $recorded[] = 'check-in '.Carbon::parse($data['inout_check_in'])->format('H:i');
+            }
+            if ($data['inout_check_out']) {
+                $recorded[] = 'check-out '.Carbon::parse($data['inout_check_out'])->format('H:i');
+            }
+
+            $employee->user?->notify(new AttendanceCorrected(
+                $employee->id,
+                $data['inout_date'],
+                'Attendance recorded ('.implode(' + ', $recorded).')',
+                $data['inout_notes'],
+            ));
         }
 
         return redirect()

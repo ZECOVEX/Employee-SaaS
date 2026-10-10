@@ -12,6 +12,8 @@
             <div class="mb-4 flex gap-3 text-sm">
                 <span class="font-medium text-gray-700">Company info</span>
                 <a href="{{ route('schedule.edit') }}" class="text-indigo-600 hover:underline">Working hours</a>
+                <a href="{{ route('overtime-policy.edit') }}" class="text-indigo-600 hover:underline">Overtime policy</a>
+                <a href="{{ route('scoring-settings.edit') }}" class="text-indigo-600 hover:underline">Scoring &amp; risk</a>
             </div>
 
             <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">

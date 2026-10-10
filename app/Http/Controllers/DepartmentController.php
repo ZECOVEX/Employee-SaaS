@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Department;
+use App\Models\User;
 use App\Services\AuditLogger;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -36,7 +38,7 @@ class DepartmentController extends Controller
     {
         Gate::authorize('departments.manage');
 
-        return view('departments.create');
+        return view('departments.create', ['managers' => $this->managers()]);
     }
 
     public function store(Request $request): RedirectResponse
@@ -48,6 +50,8 @@ class DepartmentController extends Controller
                 ->where('organization_id', $request->user()->organization_id)],
             'code' => ['nullable', 'string', 'max:40'],
             'description' => ['nullable', 'string', 'max:1000'],
+            'manager_id' => ['nullable', Rule::exists('users', 'id')
+                ->where('organization_id', $request->user()->organization_id)],
         ]);
 
         $department = Department::create($data);
@@ -63,7 +67,10 @@ class DepartmentController extends Controller
     {
         Gate::authorize('departments.manage');
 
-        return view('departments.edit', compact('department'));
+        return view('departments.edit', [
+            'department' => $department,
+            'managers' => $this->managers(),
+        ]);
     }
 
     public function update(Request $request, Department $department): RedirectResponse
@@ -76,6 +83,8 @@ class DepartmentController extends Controller
                 ->ignore($department->id)],
             'code' => ['nullable', 'string', 'max:40'],
             'description' => ['nullable', 'string', 'max:1000'],
+            'manager_id' => ['nullable', Rule::exists('users', 'id')
+                ->where('organization_id', $request->user()->organization_id)],
         ]);
 
         $old = $department->only(array_keys($data));
@@ -100,5 +109,20 @@ class DepartmentController extends Controller
         return redirect()
             ->route('departments.index')
             ->with('status', 'Department deleted.');
+    }
+
+    /**
+     * Manager candidates for the department form — leadership roles only,
+     * same list the employee form offers, scoped to the actor's org so the
+     * dropdown never lists another tenant's users.
+     *
+     * @return Collection<int, User>
+     */
+    private function managers()
+    {
+        return User::where('organization_id', auth()->user()->organization_id)
+            ->whereHas('roles', fn ($q) => $q->whereIn('slug', ['company_admin', 'hr', 'manager']))
+            ->orderBy('name')
+            ->get(['id', 'name']);
     }
 }

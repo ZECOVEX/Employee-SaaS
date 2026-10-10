@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\AuditLog;
+use App\Models\Organization;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Request;
@@ -17,8 +18,17 @@ class AuditLogger
     ): AuditLog {
         $user = Auth::user();
 
+        // Resource organization wins so a platform admin's action on another
+        // tenant lands in that tenant's trail; Organization resources (status
+        // toggles, registration) fall back to their own key, then the actor.
+        $organizationId = $resource?->getAttribute('organization_id')
+            ?? ($resource instanceof Organization ? $resource->getKey() : null)
+            ?? $user?->organization_id;
+
         return AuditLog::create([
-            'organization_id' => $user?->organization_id,
+            // Console/scheduled runs have no auth — fall back to the resource's
+            // own organization so tenancy never depends on a signed-in user.
+            'organization_id' => $organizationId,
             'actor_user_id' => $user?->id,
             'action' => $action,
             'resource_type' => $resource ? class_basename($resource) : null,

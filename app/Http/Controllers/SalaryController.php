@@ -116,15 +116,23 @@ class SalaryController extends Controller
         $amounts = SalaryRecord::computeAmounts((float) $data['basic_salary'], $allowances, $bonus, $deductions);
         $actorId = $request->user()->id;
 
-        DB::transaction(function () use ($employee, $data, $from, $allowances, $bonus, $deductions, $amounts, $actorId) {
+        // Versions this insert will close — captured first so the audit can
+        // record both the previous figures and each range close-out.
+        $willClose = SalaryRecord::withoutGlobalScopes()
+            ->where('employee_id', $employee->id)
+            ->where('effective_from', '<', $from)
+            ->where(function ($q) use ($from) {
+                $q->whereNull('effective_to')->orWhere('effective_to', '>=', $from);
+            })
+            ->get();
+
+        $closedTo = Carbon::parse($from)->subDay()->toDateString();
+
+        DB::transaction(function () use ($employee, $data, $from, $allowances, $bonus, $deductions, $amounts, $actorId, $willClose, $closedTo) {
             // Close every earlier version that still covers the new start date.
             SalaryRecord::withoutGlobalScopes()
-                ->where('employee_id', $employee->id)
-                ->where('effective_from', '<', $from)
-                ->where(function ($q) use ($from) {
-                    $q->whereNull('effective_to')->orWhere('effective_to', '>=', $from);
-                })
-                ->update(['effective_to' => Carbon::parse($from)->subDay()->toDateString()]);
+                ->whereIn('id', $willClose->pluck('id'))
+                ->update(['effective_to' => $closedTo]);
 
             SalaryRecord::withoutGlobalScopes()->create([
                 'organization_id' => $employee->organization_id,
@@ -148,7 +156,27 @@ class SalaryController extends Controller
             ->orderByDesc('id')
             ->first();
 
-        $this->audit->log('salary.created', $record, null, [
+        foreach ($willClose as $closed) {
+            $this->audit->log('salary.range_closed', $closed, [
+                'effective_to' => $closed->effective_to?->toDateString(),
+            ], [
+                'effective_to' => $closedTo,
+                'superseded_by' => $record?->id,
+            ]);
+        }
+
+        // Old = the version that was in effect before this insert.
+        $previous = $willClose->sortByDesc('effective_from')->first();
+        $this->audit->log('salary.created', $record, $previous ? [
+            'basic_salary' => (float) $previous->basic_salary,
+            'allowances' => (float) $previous->allowances,
+            'bonus' => (float) $previous->bonus,
+            'deductions' => (float) $previous->deductions,
+            'gross_salary' => (float) $previous->gross_salary,
+            'net_salary' => (float) $previous->net_salary,
+            'effective_from' => $previous->effective_from->toDateString(),
+            'effective_to' => $previous->effective_to?->toDateString(),
+        ] : null, [
             'employee_id' => $employee->id,
             'basic_salary' => (float) $data['basic_salary'],
             'allowances' => $allowances,

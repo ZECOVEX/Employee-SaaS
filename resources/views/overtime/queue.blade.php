@@ -42,6 +42,11 @@
                     </thead>
                     <tbody class="divide-y divide-gray-100">
                         @forelse ($records as $record)
+                            @php
+                                $expired = $record->status === \App\Models\OvertimeRecord::STATUS_EXPIRED;
+                                $stageOneDone = $record->policy?->approval_mode === \App\Models\OvertimePolicy::APPROVE_MANAGER_HR
+                                    && $record->approvals->contains(fn ($a) => $a->decision === \App\Models\OvertimeApproval::APPROVED);
+                            @endphp
                             <tr>
                                 <td class="px-4 py-4 text-gray-900">
                                     {{ $record->employee?->user?->name ?? '—' }}
@@ -51,12 +56,18 @@
                                 <td class="px-4 py-4 text-gray-900 font-medium">
                                     {{ $record->minutesLabel() }}
                                     <span class="block text-xs text-gray-400">×{{ rtrim(rtrim(number_format($record->multiplier, 2), '0'), '.') }}</span>
+                                    @if ($expired)
+                                        <span class="mt-1 inline-block bg-amber-100 text-amber-800 text-[11px] font-semibold px-2 py-0.5 rounded-full">Expired — late review</span>
+                                    @endif
+                                    @if ($stageOneDone)
+                                        <span class="mt-1 inline-block bg-indigo-100 text-indigo-800 text-[11px] font-semibold px-2 py-0.5 rounded-full">1/2 manager approved — awaiting HR</span>
+                                    @endif
                                 </td>
                                 <td class="px-4 py-4">
                                     <div class="flex flex-wrap items-end gap-3">
                                         <form method="POST" action="{{ route('overtime.approve', $record) }}">
                                             @csrf
-                                            <button type="submit" class="px-3 py-2 bg-emerald-600 rounded-md text-xs font-semibold text-white uppercase hover:bg-emerald-700">Approve</button>
+                                            <button type="submit" class="px-3 py-2 bg-emerald-600 rounded-md text-xs font-semibold text-white uppercase hover:bg-emerald-700">{{ $stageOneDone ? 'Confirm (HR)' : 'Approve' }}</button>
                                         </form>
 
                                         <form method="POST" action="{{ route('overtime.reject', $record) }}" class="flex items-end gap-2">

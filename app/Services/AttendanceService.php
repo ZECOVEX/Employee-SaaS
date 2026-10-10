@@ -22,7 +22,10 @@ class AttendanceService
     /** Spec §72-B: a day with this many segments is flagged as an anomaly. */
     public const MAX_SEGMENTS = 15;
 
-    public function __construct(private readonly OvertimeService $overtime) {}
+    public function __construct(
+        private readonly OvertimeService $overtime,
+        private readonly RiskService $risk,
+    ) {}
 
     /**
      * Process an NFC punch from a terminal.
@@ -420,6 +423,8 @@ class AttendanceService
         if ($daily) {
             $daily->update($attributes);
             $this->notifyLateTransition($employee, $date, $lateMinutes, $previousLateMinutes);
+            // §15: the weekly late-risk rule is evaluated on every derivation.
+            $this->risk->evaluateLateRisk($employee, $date);
             // §73-C: overtime is derived after every (re)derivation of the day.
             $this->overtime->recalculate($employee, $date);
             $daily->refresh();
@@ -434,6 +439,7 @@ class AttendanceService
             ...$attributes,
         ]);
         $this->notifyLateTransition($employee, $date, $lateMinutes, 0);
+        $this->risk->evaluateLateRisk($employee, $date);
         $this->overtime->recalculate($employee, $date);
         $created->refresh();
 

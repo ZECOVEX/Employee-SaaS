@@ -59,7 +59,7 @@
             <div class="bg-white shadow-sm sm:rounded-lg overflow-hidden">
                 <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
                     <h3 class="font-semibold text-gray-800">{{ \Carbon\Carbon::createFromFormat('Y-m-d', $filters['month'].'-01')->format('F Y') }}</h3>
-                    <p class="text-xs text-gray-500">Score and monthly status arrive with the scoring phase — columns are reserved.</p>
+                    <p class="text-xs text-gray-500">Score from the §16 engine, status band from §15; overtime shows approved / pending hours [OT].</p>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="min-w-full divide-y divide-gray-200 text-sm">
@@ -73,7 +73,7 @@
                                 <th class="px-4 py-3 text-right">Late</th>
                                 <th class="px-4 py-3 text-right">Leave</th>
                                 <th class="px-4 py-3 text-right">Working Hours</th>
-                                <th class="px-4 py-3 text-right">Overtime Hours</th>
+                                <th class="px-4 py-3 text-right">Overtime (approved / pending)</th>
                                 <th class="px-4 py-3 text-right">Score</th>
                                 <th class="px-4 py-3">Status</th>
                             </tr>
@@ -91,9 +91,21 @@
                                     </td>
                                     <td class="px-4 py-3 text-gray-700 text-right">{{ $row['leave'] }}</td>
                                     <td class="px-4 py-3 text-gray-900 text-right">{{ $row['worked_hours'] }}</td>
-                                    <td class="px-4 py-3 text-gray-700 text-right">{{ $row['overtime_hours'] > 0 ? $row['overtime_hours'] : '—' }}</td>
-                                    <td class="px-4 py-3 text-gray-400 text-right">—</td>
-                                    <td class="px-4 py-3 text-gray-400">—</td>
+                                    <td class="px-4 py-3 text-right {{ $row['ot_approved_hours'] > 0 ? 'text-indigo-600' : 'text-gray-400' }}">
+                                        @if ($row['ot_approved_hours'] > 0 || $row['ot_pending_hours'] > 0)
+                                            {{ $row['ot_approved_hours'] }} / {{ $row['ot_pending_hours'] }}
+                                        @else
+                                            —
+                                        @endif
+                                    </td>
+                                    <td class="px-4 py-3 text-gray-900 text-right font-medium">
+                                        {{ $row['score'] !== null ? number_format($row['score'], 2) : '—' }}
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-indigo-100 text-indigo-800">
+                                            {{ $row['status'] }}
+                                        </span>
+                                    </td>
                                 </tr>
                             @empty
                                 <tr>
@@ -110,7 +122,10 @@
                                     <td class="px-4 py-3 text-right">{{ array_sum(array_column($rows, 'late')) }}</td>
                                     <td class="px-4 py-3 text-right">{{ array_sum(array_column($rows, 'leave')) }}</td>
                                     <td class="px-4 py-3 text-right">{{ round(array_sum(array_column($rows, 'worked_hours')), 1) }}</td>
-                                    <td class="px-4 py-3 text-right">{{ round(array_sum(array_column($rows, 'overtime_hours')), 1) }}</td>
+                                    <td class="px-4 py-3 text-right">
+                                        {{ round(array_sum(array_column($rows, 'ot_approved_hours')), 1) }} /
+                                        {{ round(array_sum(array_column($rows, 'ot_pending_hours')), 1) }}
+                                    </td>
                                     <td class="px-4 py-3 text-right">—</td>
                                     <td class="px-4 py-3"></td>
                                 </tr>

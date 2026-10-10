@@ -16,6 +16,7 @@ class OrganizationProvisioner
         private readonly RoleSeederService $roles,
         private readonly WorkforceDefaults $defaults,
         private readonly BillingService $billing,
+        private readonly AuditLogger $audit,
     ) {}
 
     /**
@@ -72,6 +73,16 @@ class OrganizationProvisioner
 
             $this->defaults->apply($organization);
             $this->billing->provisionDefault($organization);
+
+            // §40/Phase 7: registration itself is a tenant-creating event —
+            // audit it inside the transaction so a rollback never leaves a
+            // log row for an org that does not exist.
+            $this->audit->log('organization.registered', $organization, null, [
+                'name' => $organization->name,
+                'slug' => $organization->slug,
+                'owner_name' => $data['name'],
+                'owner_email' => $data['email'],
+            ]);
 
             return [
                 'organization' => $organization,

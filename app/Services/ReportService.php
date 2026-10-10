@@ -5,14 +5,13 @@ namespace App\Services;
 use App\Models\DailyAttendance;
 use App\Models\Employee;
 use App\Models\Holiday;
+use App\Models\OvertimeRecord;
 use App\Models\Payslip;
 use App\Models\WorkSchedule;
 use Carbon\Carbon;
 
 /**
- * Aggregations behind the §41 reports and the analytics dashboard.
- * Money/score columns stay out of scope where the spec defers them
- * (overtime pay [OT], scoring §15/16).
+ * Aggregations behind the reports and the analytics dashboard.
  */
 class ReportService
 {
@@ -120,6 +119,126 @@ class ReportService
     }
 
     /**
+     * Counts + expected/capped-worked minutes for an arbitrary date range
+     * (§39 month & week filters). Same classification rules as
+     * monthlyTotals, but builds its own ledger and tracks expected minutes
+     * and per-day capped worked minutes (overtime never inflates "worked"),
+     * counting only elapsed scheduled days.
+     *
+     * @return array{present: int, late: int, half: int, leave: int, absent: int, worked_minutes: int, worked_capped_minutes: int, expected_minutes: int, late_minutes: int, scheduled_days: int}
+     */
+    public function rangeTotals(int $organizationId, int $employeeId, string $from, string $to): array
+    {
+        $start = Carbon::createFromFormat('!Y-m-d', $from);
+        $end = Carbon::parse($to);
+        $today = now()->toDateString();
+
+        $holidays = [];
+        Holiday::withoutGlobalScopes()
+            ->where('organization_id', $organizationId)
+            ->whereDate('date', '>=', $from)
+            ->whereDate('date', '<=', $to)
+            ->get()
+            ->each(function (Holiday $holiday) use (&$holidays) {
+                $holidays[$holiday->date->toDateString()] = true;
+            });
+
+        $ledger = [];
+        $expectedByDate = [];
+        $elapsedScheduled = 0;
+        $cursor = $start->copy();
+
+        while ($cursor->lte($end)) {
+            $date = $cursor->toDateString();
+            $schedule = WorkSchedule::effectiveFor($organizationId, $date);
+            $isWorkDay = in_array((int) $cursor->dayOfWeekIso, $schedule?->workDayNumbers() ?? [1, 2, 3, 4, 5], true);
+
+            if ($isWorkDay && ! isset($holidays[$date])) {
+                $ledger[$date] = true;
+                $expectedByDate[$date] = $this->scheduleExpectedMinutes($schedule);
+
+                if ($date <= $today) {
+                    $elapsedScheduled++;
+                }
+            }
+
+            $cursor->addDay();
+        }
+
+        $totals = [
+            'present' => 0,
+            'late' => 0,
+            'half' => 0,
+            'leave' => 0,
+            'absent' => 0,
+            'worked_minutes' => 0,
+            'worked_capped_minutes' => 0,
+            'expected_minutes' => 0,
+            'late_minutes' => 0,
+            'scheduled_days' => count($ledger),
+        ];
+
+        DailyAttendance::withoutGlobalScopes()
+            ->where('employee_id', $employeeId)
+            ->whereDate('date', '>=', $from)
+            ->whereDate('date', '<=', $to)
+            ->get()
+            ->each(function (DailyAttendance $row) use (&$totals, $ledger, $expectedByDate) {
+                $totals['worked_minutes'] += $row->total_work_minutes;
+                $totals['late_minutes'] += $row->late_minutes;
+
+                $date = $row->date->toDateString();
+                if (isset($expectedByDate[$date])) {
+                    $totals['worked_capped_minutes'] += min((int) $row->total_work_minutes, $expectedByDate[$date]);
+                }
+
+                if (! isset($ledger[$date])) {
+                    return;
+                }
+
+                if (in_array($row->status, ['PRESENT', 'REMOTE'], true)) {
+                    $totals['present']++;
+                } elseif ($row->status === 'LATE') {
+                    $totals['present']++;
+                    $totals['late']++;
+                } elseif ($row->status === 'HALF_DAY') {
+                    $totals['half']++;
+                } elseif ($row->status === 'LEAVE') {
+                    $totals['leave']++;
+                }
+            });
+
+        foreach ($expectedByDate as $date => $expected) {
+            if ($date <= $today) {
+                $totals['expected_minutes'] += $expected;
+            }
+        }
+
+        // Absences only up to today — future days are not absent.
+        $totals['absent'] = max(
+            0,
+            $elapsedScheduled - $totals['present'] - $totals['half'] - $totals['leave'],
+        );
+
+        return $totals;
+    }
+
+    private function scheduleExpectedMinutes(?WorkSchedule $schedule): int
+    {
+        if (! $schedule) {
+            return 480;
+        }
+
+        $minutes = ((int) strtotime($schedule->end_time) - (int) strtotime($schedule->start_time)) / 60;
+
+        if ($schedule->break_start && $schedule->break_end) {
+            $minutes -= ((int) strtotime($schedule->break_end) - (int) strtotime($schedule->break_start)) / 60;
+        }
+
+        return (int) $minutes;
+    }
+
+    /**
      * Analytics payload for the dashboard: attendance trend, department
      * comparison, weekday late pattern and payroll progress.
      *
@@ -138,6 +257,7 @@ class ReportService
             'departments' => $this->departmentStats($organizationId, $ledger),
             'weekdays' => $this->weekdayLatePattern($organizationId),
             'payroll' => $this->payrollTrend($organizationId, 6),
+            'overtime' => $this->overtimeTrend($organizationId, 6),
             'active_employees' => $activeEmployees,
         ];
     }
@@ -300,6 +420,56 @@ class ReportService
                 'label' => $cursor->format('M y'),
                 'total' => (float) ($totals[$period] ?? 0.0),
             ];
+            $cursor->addMonthNoOverflow();
+        }
+
+        return $result;
+    }
+
+    /**
+     * Countable overtime hours per month for the last N months — approved
+     * and pending split, matching the risk-limit accounting (OT phase).
+     *
+     * @return list<array{month: string, label: string, hours: float, approved: float, pending: float}>
+     */
+    private function overtimeTrend(int $organizationId, int $months): array
+    {
+        $result = [];
+        $cursor = Carbon::now()->startOfMonth()->subMonths($months - 1);
+
+        for ($i = 0; $i < $months; $i++) {
+            $approved = 0;
+            $pending = 0;
+
+            OvertimeRecord::withoutGlobalScopes()
+                ->where('organization_id', $organizationId)
+                ->whereBetween('work_date', [
+                    $cursor->toDateString(),
+                    $cursor->copy()->endOfMonth()->toDateString(),
+                ])
+                ->whereIn('status', [
+                    OvertimeRecord::STATUS_APPROVED,
+                    OvertimeRecord::STATUS_AUTO_APPROVED,
+                    OvertimeRecord::STATUS_PENDING,
+                    OvertimeRecord::STATUS_EXPIRED,
+                ])
+                ->get(['status', 'countable_minutes'])
+                ->each(function (OvertimeRecord $record) use (&$approved, &$pending) {
+                    if (in_array($record->status, [OvertimeRecord::STATUS_PENDING, OvertimeRecord::STATUS_EXPIRED], true)) {
+                        $pending += $record->countable_minutes;
+                    } else {
+                        $approved += $record->countable_minutes;
+                    }
+                });
+
+            $result[] = [
+                'month' => $cursor->format('Y-m'),
+                'label' => $cursor->format('M'),
+                'approved' => round($approved / 60, 1),
+                'pending' => round($pending / 60, 1),
+                'hours' => round(($approved + $pending) / 60, 1),
+            ];
+
             $cursor->addMonthNoOverflow();
         }
 

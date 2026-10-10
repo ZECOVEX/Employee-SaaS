@@ -5,8 +5,10 @@
             @can('nfc.manage')
                 <form action="{{ route('nfc-cards.store') }}" method="POST" class="flex items-center gap-2">
                     @csrf
-                    <input type="number" name="count" value="1" min="1" max="50" required
+                    <input type="number" name="count" value="1" min="1" max="50" required placeholder="Qty"
                            class="w-20 border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm text-sm" />
+                    <input type="text" name="notes" value="" maxlength="200" placeholder="Notes (optional)"
+                           class="w-44 border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm text-sm" />
                     <button type="submit" class="px-4 py-2 bg-gray-800 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-gray-700">
                         Issue Cards
                     </button>

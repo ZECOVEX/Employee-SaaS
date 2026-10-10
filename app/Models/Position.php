@@ -6,6 +6,7 @@ use App\Support\Tenancy\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable(['organization_id', 'department_id', 'title'])]
 class Position extends Model
@@ -15,5 +16,11 @@ class Position extends Model
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);
+    }
+
+    /** Employees holding this position (nullable FK, nullOnDelete). */
+    public function employees(): HasMany
+    {
+        return $this->hasMany(Employee::class);
     }
 }

@@ -335,6 +335,38 @@ class OvertimeDetectionTest extends TestCase
         $this->assertSame(60, $this->dailyFor($employee, '2026-09-29')->overtime_minutes);
     }
 
+    public function test_monthly_cap_trims_the_newest_days_first(): void
+    {
+        $employee = $this->employeeWithSchedule();
+        $this->createPolicy([
+            'weekly_cap_minutes' => 0,      // weekly disabled, isolate the month
+            'monthly_cap_minutes' => 225,   // 3h 45m across September
+        ]);
+
+        $times = [
+            [AttendanceEvent::CHECK_IN, '09:00'],
+            [AttendanceEvent::CHECK_OUT, '13:00'],
+            [AttendanceEvent::CHECK_IN, '14:00'],
+            [AttendanceEvent::CHECK_OUT, '19:30'],
+        ];
+
+        $this->seedDay($employee, '2026-09-15', $times); // 90 min
+        $this->seedDay($employee, '2026-09-28', $times); // 90 min → 180 total
+        $this->seedDay($employee, '2026-09-29', $times); // +90 → 270, newest trimmed
+
+        $this->assertSame(90, $this->recordFor($employee, '2026-09-15')->countable_minutes);
+        $this->assertSame(90, $this->recordFor($employee, '2026-09-28')->countable_minutes);
+        $this->assertSame(45, $this->recordFor($employee, '2026-09-29')->countable_minutes);
+        $this->assertSame(45, $this->dailyFor($employee, '2026-09-29')->overtime_minutes);
+
+        $total = OvertimeRecord::withoutGlobalScopes()
+            ->where('employee_id', $employee->id)
+            ->whereBetween('work_date', ['2026-09-01', '2026-09-30'])
+            ->where('status', '!=', OvertimeRecord::STATUS_NONE)
+            ->sum('countable_minutes');
+        $this->assertSame(225, (int) $total);
+    }
+
     public function test_detection_notification_fires_once_per_day(): void
     {
         $employee = $this->employeeWithSchedule();

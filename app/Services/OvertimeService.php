@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\CompTimeEntry;
 use App\Models\DailyAttendance;
 use App\Models\Employee;
 use App\Models\Holiday;
@@ -10,10 +11,13 @@ use App\Models\OvertimeApproval;
 use App\Models\OvertimePolicy;
 use App\Models\OvertimeRecord;
 use App\Models\SalaryRecord;
+use App\Models\User;
 use App\Models\WorkSchedule;
 use App\Notifications\OvertimeDecision;
 use App\Notifications\OvertimeDetected;
+use App\Notifications\OvertimeStaged;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -30,7 +34,10 @@ class OvertimeService
     /** @var array<string, array<string, true>> holiday set cache: "org|month" */
     private array $holidayCache = [];
 
-    public function __construct(private readonly AuditLogger $audit) {}
+    public function __construct(
+        private readonly AuditLogger $audit,
+        private readonly RiskService $risk,
+    ) {}
 
     /**
      * The policy version for a date; unsaved spec defaults when the org never
@@ -59,6 +66,10 @@ class OvertimeService
         }
 
         $this->applyWeeklyCap($employee, $week);
+        $this->applyMonthlyCap($employee, [$date]);
+
+        // §15 [OT]: overwork notice runs after every recalculation.
+        $this->risk->evaluateOvertimeRisk($employee, $date);
 
         return $this->recordFor($employee, $date);
     }
@@ -77,6 +88,7 @@ class OvertimeService
         }
 
         $this->applyWeeklyCap($employee, $dates);
+        $this->applyMonthlyCap($employee, $dates);
     }
 
     private function recalculateDay(Employee $employee, string $date): void
@@ -140,6 +152,7 @@ class OvertimeService
             // §73-L: an approved/rejected decision stands until the underlying
             // day actually changes; re-derivation must not revert it.
             $this->mirrorDate($existing);
+            $this->syncCompTime($existing);
 
             return;
         }
@@ -209,6 +222,7 @@ class OvertimeService
         ], true);
 
         $this->mirror($daily, $approved ? $existing->countable_minutes : 0);
+        $this->syncCompTime($existing);
 
         $this->notifyDetection($existing, $previousStatus, $employee);
     }
@@ -216,13 +230,64 @@ class OvertimeService
     /**
      * §73-E: approve a pending record. Approval is locked afterwards —
      * corrections only re-open it through attendance re-derivation.
+     *
+     * MANAGER_HR policies run two human stages (manager, then HR/Admin):
+     * the first approval leaves the record PENDING with a stage-1 trail
+     * row and notifies the employee; the second completes it. System calls
+     * (expiry sweep — actor null) honour the expiry action in one step.
      */
-    public function approve(OvertimeRecord $record, int $actorUserId, ?string $reason = null): OvertimeRecord
+    public function approve(OvertimeRecord $record, ?int $actorUserId = null, ?string $reason = null): OvertimeRecord
     {
-        if ($record->status !== OvertimeRecord::STATUS_PENDING) {
+        if (! in_array($record->status, [OvertimeRecord::STATUS_PENDING, OvertimeRecord::STATUS_EXPIRED], true)) {
             throw ValidationException::withMessages([
                 'record' => 'Only pending overtime can be approved.',
             ]);
+        }
+
+        $oldStatus = $record->status;
+        $policy = $this->policyFor((int) $record->organization_id, $record->work_date->toDateString());
+
+        if ($policy->approval_mode === OvertimePolicy::APPROVE_MANAGER_HR && $actorUserId !== null) {
+            $stageOne = OvertimeApproval::withoutGlobalScopes()
+                ->where('overtime_record_id', $record->id)
+                ->where('decision', OvertimeApproval::APPROVED)
+                ->orderByDesc('id')
+                ->first();
+
+            $employee = Employee::withoutGlobalScopes()->find($record->employee_id);
+            $isManager = $employee !== null && (int) $employee->manager_id === $actorUserId;
+
+            if ($stageOne === null) {
+                if (! $isManager && ! $this->actorHasRole($actorUserId, ['company_admin'])) {
+                    throw ValidationException::withMessages([
+                        'record' => "Manager-then-HR policy: the employee's manager approves first.",
+                    ]);
+                }
+
+                $minutes = (int) $record->countable_minutes;
+                $this->logApproval($record, OvertimeApproval::APPROVED, $actorUserId, $minutes, $minutes, $reason);
+                $this->audit->log('overtime.approved', $record, ['status' => $oldStatus], [
+                    'status' => OvertimeRecord::STATUS_PENDING,
+                    'stage' => 'manager',
+                    'countable_minutes' => $minutes,
+                    'reason' => $reason,
+                ]);
+                $record->employee?->user?->notify(OvertimeStaged::forRecord($record, $reason));
+
+                return $record;
+            }
+
+            if (! $isManager && ! $this->actorHasRole($actorUserId, ['company_admin', 'hr'])) {
+                throw ValidationException::withMessages([
+                    'record' => 'Manager-then-HR policy: HR/Admin must confirm after the manager approves.',
+                ]);
+            }
+
+            if ((int) $stageOne->approver_user_id === $actorUserId) {
+                throw ValidationException::withMessages([
+                    'record' => 'The first approver cannot also give the confirming approval.',
+                ]);
+            }
         }
 
         $record->status = OvertimeRecord::STATUS_APPROVED;
@@ -232,27 +297,40 @@ class OvertimeService
         $minutes = (int) $record->countable_minutes;
         $this->logApproval($record, OvertimeApproval::APPROVED, $actorUserId, $minutes, $minutes, $reason);
         $this->mirrorDate($record);
-        $this->audit->log('overtime.approved', $record, ['status' => OvertimeRecord::STATUS_PENDING], [
+        $this->syncCompTime($record);
+        $this->audit->log('overtime.approved', $record, ['status' => $oldStatus], [
             'status' => OvertimeRecord::STATUS_APPROVED,
             'countable_minutes' => $minutes,
         ]);
-        $record->employee?->user?->notify(OvertimeDecision::forRecord($record, OvertimeApproval::APPROVED, $reason));
+        $this->notifyDecision($record, OvertimeApproval::APPROVED, $reason);
 
         return $record;
+    }
+
+    /**
+     * Role lookup for stage rules — console runs resolve the stored actor
+     * without touching the signed-in user.
+     *
+     * @param  list<string>  $slugs
+     */
+    private function actorHasRole(int $actorUserId, array $slugs): bool
+    {
+        return User::withoutGlobalScopes()->whereKey($actorUserId)->first()?->hasAnyRole($slugs) ?? false;
     }
 
     /**
      * §73-E: reject requires a reason; the day stops counting (already 0 for
      * pending, kept explicit so the mirror can never disagree).
      */
-    public function reject(OvertimeRecord $record, int $actorUserId, string $reason): OvertimeRecord
+    public function reject(OvertimeRecord $record, ?int $actorUserId, string $reason): OvertimeRecord
     {
-        if ($record->status !== OvertimeRecord::STATUS_PENDING) {
+        if (! in_array($record->status, [OvertimeRecord::STATUS_PENDING, OvertimeRecord::STATUS_EXPIRED], true)) {
             throw ValidationException::withMessages([
                 'record' => 'Only pending overtime can be rejected.',
             ]);
         }
 
+        $oldStatus = $record->status;
         $before = (int) $record->countable_minutes;
         $record->status = OvertimeRecord::STATUS_REJECTED;
         $record->calculated_at = now();
@@ -260,11 +338,12 @@ class OvertimeService
 
         $this->logApproval($record, OvertimeApproval::REJECTED, $actorUserId, $before, 0, $reason);
         $this->mirrorDate($record);
-        $this->audit->log('overtime.rejected', $record, ['status' => OvertimeRecord::STATUS_PENDING], [
+        $this->syncCompTime($record);
+        $this->audit->log('overtime.rejected', $record, ['status' => $oldStatus], [
             'status' => OvertimeRecord::STATUS_REJECTED,
             'reason' => $reason,
         ]);
-        $record->employee?->user?->notify(OvertimeDecision::forRecord($record, OvertimeApproval::REJECTED, $reason));
+        $this->notifyDecision($record, OvertimeApproval::REJECTED, $reason);
 
         return $record;
     }
@@ -303,13 +382,85 @@ class OvertimeService
 
         $this->logApproval($record, OvertimeApproval::ADJUSTED, $actorUserId, $before, $minutes, $reason);
         $this->mirrorDate($record);
+        $this->syncCompTime($record);
         $this->audit->log('overtime.adjusted', $record, ['countable_minutes' => $before], [
             'countable_minutes' => $minutes,
             'status' => $record->status,
             'reason' => $reason,
         ]);
+        $this->notifyDecision($record, OvertimeApproval::ADJUSTED, $reason);
 
         return $record;
+    }
+
+    /**
+     * §39 aggregates for an employee over a date range — status splits,
+     * overtime days, weekday vs weekend/holiday minutes, applied
+     * multipliers, pay and the visibility/eligibility flags the Statistics
+     * overtime section and the dashboard [OT] card need.
+     *
+     * @return array<string, mixed>
+     */
+    public function summaryForRange(Employee $employee, string $from, string $to): array
+    {
+        $policy = $this->policyFor((int) $employee->organization_id, $from);
+
+        $summary = [
+            'eligible' => $employee->isOvertimeEligible($policy),
+            'show_hours' => (bool) $policy->show_hours_to_employee,
+            'show_pay' => (bool) $policy->show_pay_to_employee,
+            'approved_minutes' => 0,
+            'pending_minutes' => 0,
+            'rejected_minutes' => 0,
+            'days' => 0,
+            'weekday_minutes' => 0,
+            'weekend_holiday_minutes' => 0,
+            'multipliers' => [],
+            'pay_approved' => 0.0,
+            'pay_pending' => 0.0,
+        ];
+
+        if (! $summary['eligible']) {
+            return $summary;
+        }
+
+        OvertimeRecord::query()
+            ->where('employee_id', $employee->id)
+            ->whereBetween('work_date', [$from, $to])
+            ->get()
+            ->each(function (OvertimeRecord $record) use (&$summary) {
+                $countable = (int) $record->countable_minutes;
+
+                if ($countable <= 0) {
+                    return;
+                }
+
+                $summary['days']++;
+                $summary['multipliers'][(string) $record->multiplier] = (float) $record->multiplier;
+
+                if ($record->day_type === 'WORKING_DAY') {
+                    $summary['weekday_minutes'] += $countable;
+                } else {
+                    $summary['weekend_holiday_minutes'] += $countable;
+                }
+
+                if (in_array($record->status, [OvertimeRecord::STATUS_APPROVED, OvertimeRecord::STATUS_AUTO_APPROVED], true)) {
+                    $summary['approved_minutes'] += $countable;
+                    $summary['pay_approved'] += (float) $record->estimated_pay;
+                } elseif (in_array($record->status, [OvertimeRecord::STATUS_PENDING, OvertimeRecord::STATUS_EXPIRED], true)) {
+                    $summary['pending_minutes'] += $countable;
+                    $summary['pay_pending'] += (float) $record->estimated_pay;
+                } elseif ($record->status === OvertimeRecord::STATUS_REJECTED) {
+                    $summary['rejected_minutes'] += $countable;
+                }
+            });
+
+        $summary['multipliers'] = array_values($summary['multipliers']);
+        sort($summary['multipliers']);
+        $summary['pay_approved'] = round($summary['pay_approved'], 2);
+        $summary['pay_pending'] = round($summary['pay_pending'], 2);
+
+        return $summary;
     }
 
     /**
@@ -318,7 +469,7 @@ class OvertimeService
     private function logApproval(
         OvertimeRecord $record,
         string $decision,
-        int $actorUserId,
+        ?int $actorUserId,
         int $minutesBefore,
         int $minutesAfter,
         ?string $reason,
@@ -333,6 +484,44 @@ class OvertimeService
             'reason' => $reason,
             'decided_at' => now(),
         ]);
+    }
+
+    /**
+     * §73-F COMP_TIME: approved compensatory overtime accrues a leave-balance-
+     * style ledger row (one per record, upserted); pay-mode records, pending,
+     * rejected or zeroed records keep the ledger clean. Called after every
+     * mirror point so the balance can never drift from the decision.
+     */
+    private function syncCompTime(OvertimeRecord $record): void
+    {
+        $policy = $record->policy_id !== null
+            ? OvertimePolicy::withoutGlobalScopes()->find($record->policy_id)
+            : null;
+
+        $accrues = $policy?->compensation_type === OvertimePolicy::COMP_TIME
+            && in_array($record->status, [
+                OvertimeRecord::STATUS_APPROVED,
+                OvertimeRecord::STATUS_AUTO_APPROVED,
+            ], true)
+            && $record->countable_minutes > 0;
+
+        if ($accrues) {
+            CompTimeEntry::withoutGlobalScopes()->updateOrCreate(
+                ['overtime_record_id' => $record->id],
+                [
+                    'organization_id' => $record->organization_id,
+                    'employee_id' => $record->employee_id,
+                    'work_date' => $record->work_date->toDateString(),
+                    'minutes' => (int) $record->countable_minutes,
+                ],
+            );
+
+            return;
+        }
+
+        CompTimeEntry::withoutGlobalScopes()
+            ->where('overtime_record_id', $record->id)
+            ->delete();
     }
 
     /**
@@ -360,6 +549,55 @@ class OvertimeService
             ->orderByDesc('work_date')
             ->get();
 
+        $this->reduceToCap($records, $cap, $policy);
+    }
+
+    /**
+     * §73-C.8 monthly cap: a calendar month's countable minutes may not
+     * exceed monthly_cap_minutes (0 = unlimited). Runs after the weekly
+     * cap so the tighter window trims first; one pass per touched month.
+     *
+     * @param  list<string>  $dates
+     */
+    private function applyMonthlyCap(Employee $employee, array $dates): void
+    {
+        $months = [];
+
+        foreach ($dates as $date) {
+            $months[substr($date, 0, 7)] = true;
+        }
+
+        foreach (array_keys($months) as $month) {
+            $monthStart = $month.'-01';
+            $policy = $this->policyFor((int) $employee->organization_id, $monthStart);
+            $cap = (int) $policy->monthly_cap_minutes;
+
+            if ($cap <= 0) {
+                continue;
+            }
+
+            $records = OvertimeRecord::withoutGlobalScopes()
+                ->where('employee_id', $employee->id)
+                ->whereBetween('work_date', [
+                    Carbon::parse($monthStart)->startOfMonth()->toDateString(),
+                    Carbon::parse($monthStart)->endOfMonth()->toDateString(),
+                ])
+                ->where('status', '!=', OvertimeRecord::STATUS_NONE)
+                ->orderByDesc('work_date')
+                ->get();
+
+            $this->reduceToCap($records, $cap, $policy);
+        }
+    }
+
+    /**
+     * Shared cap reducer: trim the newest records first until the window
+     * total fits the cap — locked decisions and flagged days keep minutes.
+     *
+     * @param  Collection<int, OvertimeRecord>  $records  newest-first
+     */
+    private function reduceToCap(Collection $records, int $cap, OvertimePolicy $policy): void
+    {
         $total = (int) $records->sum('countable_minutes');
 
         if ($total <= $cap) {
@@ -392,6 +630,7 @@ class OvertimeService
             $record->save();
 
             $this->mirrorDate($record);
+            $this->syncCompTime($record);
         }
     }
 
@@ -728,6 +967,19 @@ class OvertimeService
     }
 
     /**
+     * §73-E decision notice. The employee is loaded bypassing the global
+     * organization scope: in CLI runs (the expiry sweep) Auth is null, the
+     * scope matches nothing and `$record->employee` would silently be null.
+     */
+    private function notifyDecision(OvertimeRecord $record, string $decision, ?string $reason): void
+    {
+        Employee::withoutGlobalScopes()
+            ->find($record->employee_id)
+            ?->user
+            ?->notify(OvertimeDecision::forRecord($record, $decision, $reason));
+    }
+
+    /**
      * §73-I.7 "detected" — fires once per day when overtime first becomes
      * countable, not on every re-derivation.
      */
@@ -739,6 +991,7 @@ class OvertimeService
 
         if (in_array($previousStatus, [
             OvertimeRecord::STATUS_PENDING,
+            OvertimeRecord::STATUS_EXPIRED,
             OvertimeRecord::STATUS_AUTO_APPROVED,
             OvertimeRecord::STATUS_APPROVED,
         ], true)) {

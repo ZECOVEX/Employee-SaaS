@@ -4,10 +4,12 @@
     $user = $employee?->user;
 @endphp
 
+{{-- §54 cap errors surface on both create and reactivation (update). --}}
+@error('employee_limit')
+    <div class="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{{ $message }}</div>
+@enderror
+
 @if ($isCreate)
-    @error('employee_limit')
-        <div class="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{{ $message }}</div>
-    @enderror
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
             <x-input-label for="name" value="Full name" />
@@ -148,6 +150,20 @@
     <div>
         <x-input-label for="emergency_contact_phone" value="Emergency phone" />
         <x-text-input id="emergency_contact_phone" name="emergency_contact_phone" type="text" class="mt-1 block w-full" :value="old('emergency_contact_phone', $employee?->emergency_contact_phone)" />
+    </div>
+    <div>
+        <x-input-label for="overtime_eligibility" value="Overtime eligibility" />
+        <select id="overtime_eligibility" name="overtime_eligibility" class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm">
+            @foreach ([
+                \App\Models\Employee::OT_POLICY_DEFAULT => 'Follow overtime policy',
+                \App\Models\Employee::OT_ELIGIBLE => 'Always eligible',
+                \App\Models\Employee::OT_NOT_ELIGIBLE => 'Never eligible',
+            ] as $value => $label)
+                <option value="{{ $value }}" @selected(old('overtime_eligibility', $employee?->overtime_eligibility ?? \App\Models\Employee::OT_POLICY_DEFAULT) === $value)>{{ $label }}</option>
+            @endforeach
+        </select>
+        <p class="mt-1 text-xs text-gray-500">Per-employee override of the policy's enabled flag (§73-G).</p>
+        <x-input-error :messages="$errors->get('overtime_eligibility')" class="mt-2" />
     </div>
 </div>
 

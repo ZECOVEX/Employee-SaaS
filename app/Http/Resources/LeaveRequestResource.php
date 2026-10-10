@@ -25,7 +25,10 @@ class LeaveRequestResource extends JsonResource
             'days' => $this->days,
             'status' => $this->status,
             'reason' => $this->reason,
-            'reviewer_id' => $this->reviewer_id,
+            'attachment_path' => $this->attachment_path,
+            'reviewed_by' => $this->reviewed_by,
+            'reviewed_at' => $this->reviewed_at?->toIso8601String(),
+            'review_note' => $this->review_note,
             'created_at' => $this->created_at?->toIso8601String(),
         ];
     }

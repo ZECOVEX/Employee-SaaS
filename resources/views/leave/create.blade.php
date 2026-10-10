@@ -12,7 +12,7 @@
                     </div>
                 @endif
 
-                <form action="{{ route('leave.store') }}" method="POST" class="space-y-4">
+                <form action="{{ route('leave.store') }}" method="POST" enctype="multipart/form-data" class="space-y-4">
                     @csrf
                     <div>
                         <x-input-label for="leave_type_id" value="Leave type" />
@@ -46,6 +46,15 @@
                         <textarea id="reason" name="reason" rows="3"
                                   class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm">{{ old('reason') }}</textarea>
                         <x-input-error :messages="$errors->get('reason')" class="mt-2" />
+                    </div>
+
+                    <div>
+                        <x-input-label for="attachment" value="Attachment (optional)" />
+                        <input id="attachment" name="attachment" type="file"
+                               accept=".pdf,.jpg,.jpeg,.png,.webp"
+                               class="mt-1 block w-full text-sm text-gray-600" />
+                        <p class="mt-1 text-xs text-gray-400">PDF, JPG, PNG or WebP — up to 2 MB.</p>
+                        <x-input-error :messages="$errors->get('attachment')" class="mt-2" />
                     </div>
 
                     <button type="submit" class="px-4 py-2 bg-gray-800 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-gray-700">

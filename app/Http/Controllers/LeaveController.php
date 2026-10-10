@@ -13,8 +13,10 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class LeaveController extends Controller
 {
@@ -78,6 +80,7 @@ class LeaveController extends Controller
             'start_date' => ['required', 'date', 'after_or_equal:today'],
             'end_date' => ['required', 'date', 'after_or_equal:start_date'],
             'reason' => ['nullable', 'string', 'max:1000'],
+            'attachment' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:2048'],
         ]);
 
         $days = $this->leave->workingDays(
@@ -120,13 +123,49 @@ class LeaveController extends Controller
             'status' => LeaveRequest::PENDING,
         ]);
 
+        if ($request->hasFile('attachment')) {
+            $path = $request->file('attachment')
+                ->store('leave-attachments/'.$request->user()->organization_id, 'local');
+            $requestModel->update(['attachment_path' => $path]);
+        }
+
         $this->audit->log('leave.requested', $requestModel, null, $requestModel->only([
-            'leave_type_id', 'start_date', 'end_date', 'days',
+            'leave_type_id', 'start_date', 'end_date', 'days', 'attachment_path',
         ]));
 
         return redirect()
             ->route('leave.index')
             ->with('status', 'Leave request submitted.');
+    }
+
+    /**
+     * Stream a leave attachment from the private disk. Visibility mirrors
+     * leave.index: leave.manage sees everything, approve-only reviewers
+     * their team, everyone else their own requests.
+     */
+    public function attachment(Request $request, LeaveRequest $leaveRequest): StreamedResponse
+    {
+        abort_unless($leaveRequest->attachment_path !== null, 404);
+
+        $user = $request->user();
+
+        if (! $user->canPermission('leave.manage') && ! $user->is_platform_admin) {
+            $owns = $leaveRequest->employee?->user_id === $user->id;
+            $team = $user->canPermission('leave.approve')
+                && DB::table('employees')
+                    ->where('id', $leaveRequest->employee_id)
+                    ->where('manager_id', $user->id)
+                    ->exists();
+
+            abort_unless($owns || $team, 403);
+        }
+
+        abort_unless(Storage::disk('local')->exists($leaveRequest->attachment_path), 404);
+
+        return Storage::disk('local')->download(
+            $leaveRequest->attachment_path,
+            sprintf('leave-request-%d.%s', $leaveRequest->id, pathinfo($leaveRequest->attachment_path, PATHINFO_EXTENSION)),
+        );
     }
 
     public function approve(Request $request, LeaveRequest $leaveRequest): RedirectResponse

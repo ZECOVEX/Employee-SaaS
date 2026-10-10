@@ -120,10 +120,14 @@ class UserController extends Controller
 
         $user->unsetRelation('roles');
 
+        // Both sides of the diff carry role slugs so the audit view shows a
+        // readable old -> new pair instead of slugs vs a bare id.
+        $newRoleSlug = Role::query()->whereKey($data['role_id'])->value('slug');
+
         $this->audit->log('user.updated', $user, $old, [
             'name' => $user->name,
             'email' => $user->email,
-            'roles' => [$data['role_id']],
+            'roles' => [$newRoleSlug],
         ]);
 
         return redirect()
@@ -141,7 +145,9 @@ class UserController extends Controller
         $old = ['name' => $user->name, 'email' => $user->email];
         $user->delete();
 
-        $this->audit->log('user.deleted', null, $old, null);
+        // Keep the user as the resource so the trail still shows *who* was
+        // deleted (resource_type/id survive the soft state change).
+        $this->audit->log('user.deleted', $user, $old, null);
 
         return redirect()
             ->route('users.index')

@@ -2,14 +2,21 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AuditLog;
 use App\Models\Department;
 use App\Models\Employee;
+use App\Models\EmployeeMonthlyStatus;
+use App\Models\LeaveRequest;
+use App\Models\NfcCard;
 use App\Models\Position;
 use App\Models\Role;
 use App\Models\SalaryRecord;
 use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\BillingService;
+use App\Services\OvertimeService;
+use App\Services\RiskService;
+use App\Services\ScoreService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -54,14 +61,15 @@ class EmployeeController extends Controller
         return view('employees.index', compact('employees', 'departments'));
     }
 
-    public function create(): View
+    public function create(Request $request): View
     {
         Gate::authorize('employees.create');
 
         return view('employees.create', [
             'departments' => Department::orderBy('name')->get(['id', 'name']),
             'positions' => Position::orderBy('title')->get(['id', 'title']),
-            'managers' => User::whereHas('roles', fn ($q) => $q->whereIn('slug', ['company_admin', 'hr', 'manager']))
+            'managers' => User::where('organization_id', $request->user()->organization_id)
+                ->whereHas('roles', fn ($q) => $q->whereIn('slug', ['company_admin', 'hr', 'manager']))
                 ->orderBy('name')->get(['id', 'name']),
             'roles' => Role::orderBy('name')->get(['id', 'name', 'slug']),
         ]);
@@ -83,10 +91,21 @@ class EmployeeController extends Controller
                 ->where('organization_id', $request->user()->organization_id)],
             'manager_id' => ['nullable', Rule::exists('users', 'id')
                 ->where('organization_id', $request->user()->organization_id)],
-            'status' => ['required', Rule::in(['active', 'inactive'])],
+            'status' => ['required', Rule::in(['active', 'inactive', 'terminated'])],
             'employment_type' => ['required', Rule::in(['full_time', 'part_time', 'contract', 'intern'])],
             'phone' => ['nullable', 'string', 'max:32'],
+            'address' => ['nullable', 'string', 'max:255'],
+            'date_of_birth' => ['nullable', 'date'],
             'joining_date' => ['nullable', 'date'],
+            'work_location' => ['nullable', 'string', 'max:120'],
+            'emergency_contact_name' => ['nullable', 'string', 'max:120'],
+            'emergency_contact_phone' => ['nullable', 'string', 'max:32'],
+            'photo' => ['nullable', 'image', 'max:2048'],
+            'overtime_eligibility' => ['nullable', Rule::in([
+                Employee::OT_POLICY_DEFAULT,
+                Employee::OT_ELIGIBLE,
+                Employee::OT_NOT_ELIGIBLE,
+            ])],
             'role_id' => ['nullable', Rule::exists('roles', 'id')
                 ->where('organization_id', $request->user()->organization_id)],
         ]);
@@ -124,14 +143,33 @@ class EmployeeController extends Controller
                 'status' => $data['status'],
                 'employment_type' => $data['employment_type'],
                 'phone' => $data['phone'] ?? null,
+                'address' => $data['address'] ?? null,
+                'date_of_birth' => $data['date_of_birth'] ?? null,
                 'joining_date' => $data['joining_date'] ?? now()->toDateString(),
+                'work_location' => $data['work_location'] ?? null,
+                'emergency_contact_name' => $data['emergency_contact_name'] ?? null,
+                'emergency_contact_phone' => $data['emergency_contact_phone'] ?? null,
+                'overtime_eligibility' => $data['overtime_eligibility'] ?? Employee::OT_POLICY_DEFAULT,
             ]);
         });
+
+        // Same post-commit photo handling as update() — a rolled-back create
+        // never leaves an orphaned file (the form does not offer a photo on
+        // create today, but the field is accepted for parity/tests).
+        if ($request->hasFile('photo')) {
+            $employee->update([
+                'photo_path' => $request->file('photo')->store('employees/'.$employee->id, 'public'),
+            ]);
+        }
 
         $this->audit->log('employee.created', $employee, null, [
             'employee_code' => $data['employee_code'],
             'email' => $data['email'],
             'name' => $data['name'],
+            'status' => $data['status'],
+            'employment_type' => $data['employment_type'],
+            'department_id' => $data['department_id'] ?? null,
+            'overtime_eligibility' => $data['overtime_eligibility'] ?? null,
         ]);
 
         return redirect()
@@ -139,13 +177,14 @@ class EmployeeController extends Controller
             ->with('status', 'Employee created.');
     }
 
-    public function show(Employee $employee): View
+    public function show(Request $request, Employee $employee, ScoreService $scoring, OvertimeService $overtime, RiskService $risk): View
     {
         Gate::authorize('employees.view');
         $this->authorizeOwnOrPermission($employee, 'employees.view_team');
 
         $employee->load(['user:id,name,email,last_login_at', 'department:id,name', 'position:id,title', 'manager:id,name']);
 
+        $user = $request->user();
         $isSelf = auth()->user()?->employee?->id === $employee->id;
         $canSeeSalary = Gate::allows('salary.view')
             || ($isSelf && Gate::allows('salary.view_own'));
@@ -158,7 +197,58 @@ class EmployeeController extends Controller
             )
             : null;
 
-        return view('employees.show', compact('employee', 'canSeeSalary', 'currentSalary'));
+        // §40 header cards: current-month attendance score + overtime.
+        $tz = $employee->organization?->timezone ?? 'UTC';
+        $month = now($tz)->format('Y-m');
+        $score = $scoring->compute($employee, $month);
+        $scoreStatus = $score !== null
+            ? $risk->statusFor($employee->organization, (float) $score['score'])
+            : null;
+        $otSummary = $overtime->summaryForRange(
+            $employee,
+            now($tz)->startOfMonth()->toDateString(),
+            now($tz)->endOfMonth()->toDateString(),
+        );
+
+        // §40 tabs — each visible only to self or the matching permission.
+        $tabs = array_keys(array_filter([
+            'leave' => $isSelf || $user->canPermission('leave.view'),
+            'monthly' => true,
+            'nfc' => $isSelf || $user->canPermission('nfc.view'),
+            'audit' => $isSelf || $user->canPermission('audit.view'),
+        ]));
+
+        $requested = $request->string('tab')->toString();
+        $tab = in_array($requested, $tabs, true) ? $requested : ($tabs[0] ?? 'monthly');
+
+        $tabData = match ($tab) {
+            'leave' => LeaveRequest::with('leaveType:id,name,code')
+                ->where('employee_id', $employee->id)
+                ->orderByDesc('created_at')
+                ->limit(30)
+                ->get(),
+            'nfc' => NfcCard::where('employee_id', $employee->id)
+                ->orderByDesc('id')
+                ->limit(30)
+                ->get(),
+            'audit' => AuditLog::with('actor:id,name')
+                ->where('resource_type', 'Employee')
+                ->where('resource_id', $employee->id)
+                ->orderByDesc('id')
+                ->limit(30)
+                ->get(),
+            default => EmployeeMonthlyStatus::where('employee_id', $employee->id)
+                ->orderByDesc('year')
+                ->orderByDesc('month')
+                ->limit(24)
+                ->get(),
+        };
+
+        return view('employees.show', compact(
+            'employee', 'canSeeSalary', 'currentSalary',
+            'score', 'scoreStatus', 'otSummary',
+            'tabs', 'tab', 'tabData', 'isSelf',
+        ));
     }
 
     public function edit(Employee $employee): View
@@ -170,7 +260,8 @@ class EmployeeController extends Controller
             'employee' => $employee->load(['user:id,name,email', 'department:id,name', 'position:id,title', 'manager:id,name']),
             'departments' => Department::orderBy('name')->get(['id', 'name']),
             'positions' => Position::orderBy('title')->get(['id', 'title']),
-            'managers' => User::whereHas('roles', fn ($q) => $q->whereIn('slug', ['company_admin', 'hr', 'manager']))
+            'managers' => User::where('organization_id', $employee->organization_id)
+                ->whereHas('roles', fn ($q) => $q->whereIn('slug', ['company_admin', 'hr', 'manager']))
                 ->where('id', '!=', $employee->user_id)
                 ->orderBy('name')->get(['id', 'name']),
         ]);
@@ -200,12 +291,23 @@ class EmployeeController extends Controller
             'emergency_contact_name' => ['nullable', 'string', 'max:120'],
             'emergency_contact_phone' => ['nullable', 'string', 'max:32'],
             'photo' => ['nullable', 'image', 'max:2048'],
+            'overtime_eligibility' => ['nullable', Rule::in([
+                Employee::OT_POLICY_DEFAULT,
+                Employee::OT_ELIGIBLE,
+                Employee::OT_NOT_ELIGIBLE,
+            ])],
         ]);
+
+        // §54: reactivating an inactive/terminated employee consumes plan
+        // headcount just like a create — same cap, no bypass on update.
+        if ($data['status'] === 'active' && $employee->status !== 'active') {
+            $this->billing->ensureCanAddEmployee($employee->organization_id);
+        }
 
         $oldEmployee = $employee->only([
             'department_id', 'position_id', 'manager_id', 'status', 'employment_type',
             'phone', 'address', 'date_of_birth', 'joining_date', 'work_location',
-            'photo_path',
+            'photo_path', 'overtime_eligibility',
         ]);
         $oldUser = $employee->user->only(['name', 'email']);
         $oldPhotoPath = $employee->photo_path;
@@ -224,6 +326,7 @@ class EmployeeController extends Controller
                 'work_location' => $data['work_location'] ?? null,
                 'emergency_contact_name' => $data['emergency_contact_name'] ?? null,
                 'emergency_contact_phone' => $data['emergency_contact_phone'] ?? null,
+                'overtime_eligibility' => $data['overtime_eligibility'] ?? $employee->overtime_eligibility,
             ]);
 
             $employee->user->update([

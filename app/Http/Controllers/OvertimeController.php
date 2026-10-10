@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CompTimeEntry;
 use App\Models\OvertimeRecord;
 use App\Models\User;
 use App\Services\OvertimeService;
@@ -42,9 +43,20 @@ class OvertimeController extends Controller
             ]),
         );
 
+        // §73-F COMP_TIME balance — leave-balance-style ledger (approved rows).
+        $compMinutes = (int) CompTimeEntry::withoutGlobalScopes()
+            ->when(
+                $employee,
+                fn ($query) => $query->where('employee_id', $employee->id),
+                fn ($query) => $query->whereRaw('1 = 0'),
+            )
+            ->sum('minutes');
+
         return view('overtime.index', [
             'records' => $records,
             'employee' => $employee,
+            'compMinutes' => $compMinutes,
+            'compLabel' => CompTimeEntry::minutesLabel($compMinutes),
             'statusLabels' => self::STATUS_LABELS,
             'dayLabels' => self::DAY_LABELS,
             'flagLabels' => self::FLAG_LABELS,
@@ -61,8 +73,8 @@ class OvertimeController extends Controller
 
         $query = OvertimeRecord::withoutGlobalScopes()
             ->where('organization_id', $user->organization_id)
-            ->where('status', OvertimeRecord::STATUS_PENDING)
-            ->with('employee.user')
+            ->whereIn('status', [OvertimeRecord::STATUS_PENDING, OvertimeRecord::STATUS_EXPIRED])
+            ->with('employee.user', 'policy', 'approvals')
             ->orderByDesc('work_date')
             ->orderByDesc('id');
 
@@ -85,9 +97,14 @@ class OvertimeController extends Controller
     {
         $this->authorizeDecision($request->user(), $overtimeRecord);
 
-        $this->overtime->approve($overtimeRecord, (int) $request->user()->id);
+        $record = $this->overtime->approve($overtimeRecord, (int) $request->user()->id);
 
-        return back()->with('status', 'Overtime approved.');
+        return back()->with(
+            'status',
+            $record->status === OvertimeRecord::STATUS_PENDING
+                ? 'Manager approved — awaiting HR/Admin confirmation.'
+                : 'Overtime approved.',
+        );
     }
 
     public function reject(Request $request, OvertimeRecord $overtimeRecord): RedirectResponse
@@ -141,6 +158,7 @@ class OvertimeController extends Controller
         OvertimeRecord::STATUS_AUTO_APPROVED => 'Auto-approved',
         OvertimeRecord::STATUS_APPROVED => 'Approved',
         OvertimeRecord::STATUS_REJECTED => 'Rejected',
+        OvertimeRecord::STATUS_EXPIRED => 'Expired (escalated)',
         OvertimeRecord::STATUS_FLAGGED => 'Needs review',
     ];
 

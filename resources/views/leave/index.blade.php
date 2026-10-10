@@ -56,6 +56,9 @@
                                     @if ($leaveRequest->review_note)
                                         <div class="text-xs text-gray-400 mt-1">{{ $leaveRequest->review_note }}</div>
                                     @endif
+                                    @if ($leaveRequest->attachment_path)
+                                        <a href="{{ route('leave.attachment', $leaveRequest) }}" class="block mt-1 text-xs text-indigo-600 hover:underline">Attachment</a>
+                                    @endif
                                 </td>
                                 <td class="px-6 py-4 text-right space-x-2 whitespace-nowrap">
                                     @if ($leaveRequest->status === 'PENDING')

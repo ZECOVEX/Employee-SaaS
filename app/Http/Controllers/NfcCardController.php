@@ -54,7 +54,11 @@ class NfcCardController extends Controller
             $tokens[] = $token;
         }
 
-        $this->audit->log('nfc.issued', null, null, ['count' => $data['count'], 'tokens' => $tokens]);
+        $this->audit->log('nfc.issued', null, null, [
+            'count' => $data['count'],
+            'notes' => $data['notes'] ?? null,
+            'tokens' => $tokens,
+        ]);
 
         return redirect()
             ->route('nfc-cards.index')

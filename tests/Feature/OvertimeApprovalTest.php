@@ -125,6 +125,87 @@ class OvertimeApprovalTest extends TestCase
         $this->assertContains('Overtime approved', $titles);
     }
 
+    public function test_manager_hr_policy_requires_manager_then_hr_confirmation(): void
+    {
+        OvertimePolicy::withoutGlobalScopes()->create([
+            'organization_id' => $this->ctx['organization']->id,
+            ...OvertimePolicy::defaults(),
+            'approval_mode' => OvertimePolicy::APPROVE_MANAGER_HR,
+        ]);
+        $record = $this->pendingRecord($this->teamMember, '2026-09-29');
+
+        // Stage 1 must be the employee's manager (or a company admin) —
+        // HR-only users cannot open the chain.
+        $this->actingAs($this->hr)
+            ->post(route('overtime.approve', $record))
+            ->assertSessionHasErrors('record');
+        $this->assertSame(OvertimeRecord::STATUS_PENDING, $record->fresh()->status);
+
+        // The direct manager approves: still PENDING, stage-1 trail + notice.
+        $this->actingAs($this->manager)
+            ->post(route('overtime.approve', $record))
+            ->assertRedirect();
+
+        $record->refresh();
+        $this->assertSame(OvertimeRecord::STATUS_PENDING, $record->status);
+        $this->assertSame(0, $this->dailyOvertime($this->teamMember, '2026-09-29'));
+        $this->assertDatabaseHas('overtime_approvals', [
+            'overtime_record_id' => $record->id,
+            'approver_user_id' => $this->manager->id,
+            'decision' => OvertimeApproval::APPROVED,
+        ]);
+
+        $titles = $this->teamUser->notifications()->get()
+            ->map(fn ($n) => $n->data['title'])
+            ->all();
+        $this->assertContains('Overtime manager-approved', $titles);
+        $this->assertNotContains('Overtime approved', $titles);
+
+        // The first approver cannot also give the confirming approval.
+        $this->actingAs($this->manager)
+            ->post(route('overtime.approve', $record))
+            ->assertSessionHasErrors('record');
+        $this->assertSame(OvertimeRecord::STATUS_PENDING, $record->fresh()->status);
+
+        // Stage 2: HR confirms → final approval, mirrored minutes, notice.
+        $this->actingAs($this->hr)
+            ->post(route('overtime.approve', $record))
+            ->assertRedirect();
+
+        $record->refresh();
+        $this->assertSame(OvertimeRecord::STATUS_APPROVED, $record->status);
+        $this->assertSame(75, $this->dailyOvertime($this->teamMember, '2026-09-29'));
+
+        $titles = $this->teamUser->notifications()->get()
+            ->map(fn ($n) => $n->data['title'])
+            ->all();
+        $this->assertContains('Overtime approved', $titles);
+    }
+
+    public function test_manager_hr_company_admin_can_open_the_chain(): void
+    {
+        OvertimePolicy::withoutGlobalScopes()->create([
+            'organization_id' => $this->ctx['organization']->id,
+            ...OvertimePolicy::defaults(),
+            'approval_mode' => OvertimePolicy::APPROVE_MANAGER_HR,
+        ]);
+        $record = $this->pendingRecord($this->teamMember, '2026-09-29');
+
+        // No manager on the record → company admin may act as stage 1.
+        $this->teamMember->update(['manager_id' => null]);
+
+        $this->actingAs($this->admin)
+            ->post(route('overtime.approve', $record))
+            ->assertRedirect();
+        $this->assertSame(OvertimeRecord::STATUS_PENDING, $record->fresh()->status);
+
+        // HR finishes the confirmation (different actor from stage 1).
+        $this->actingAs($this->hr)
+            ->post(route('overtime.approve', $record))
+            ->assertRedirect();
+        $this->assertSame(OvertimeRecord::STATUS_APPROVED, $record->fresh()->status);
+    }
+
     public function test_approve_only_works_on_pending_records(): void
     {
         // Default policy auto-approves, so this record is not pending.
@@ -263,6 +344,112 @@ class OvertimeApprovalTest extends TestCase
             ->assertNotFound();
 
         $this->assertSame(OvertimeRecord::STATUS_PENDING, $record->fresh()->status);
+    }
+
+    public function test_expired_pending_records_auto_approve_after_the_window(): void
+    {
+        $this->createExpiryPolicy(OvertimePolicy::EXPIRE_AUTO_APPROVE);
+        $record = $this->pendingRecord($this->teamMember, '2026-09-29');
+
+        // Inside the 7-day window the sweep leaves everything alone.
+        $this->artisan('overtime:expire-pending')->assertExitCode(0);
+        $this->assertSame(OvertimeRecord::STATUS_PENDING, $record->fresh()->status);
+        $this->assertSame(0, OvertimeApproval::withoutGlobalScopes()
+            ->where('overtime_record_id', $record->id)
+            ->count());
+
+        // Created 2026-09-29 23:00 → past the deadline on 2026-10-06 23:00.
+        Carbon::setTestNow('2026-10-07 09:00:00');
+        $this->artisan('overtime:expire-pending')->assertExitCode(0);
+
+        $record->refresh();
+        $this->assertSame(OvertimeRecord::STATUS_APPROVED, $record->status);
+        $this->assertSame(75, $this->dailyOvertime($this->teamMember, '2026-09-29'));
+
+        $this->assertDatabaseHas('overtime_approvals', [
+            'overtime_record_id' => $record->id,
+            'approver_user_id' => null, // system decision (§73-E)
+            'decision' => OvertimeApproval::APPROVED,
+            'minutes_after' => 75,
+        ]);
+        $this->assertDatabaseHas('audit_logs', [
+            'organization_id' => $this->ctx['organization']->id,
+            'action' => 'overtime.approved',
+        ]);
+
+        $approved = $this->teamUser->notifications()->get()
+            ->first(fn ($n) => $n->data['title'] === 'Overtime approved');
+        $this->assertNotNull($approved);
+        // Approvals show the standard decision line (reasons are a rejection detail).
+        $this->assertStringContainsString('2026-09-29', $approved->data['body']);
+    }
+
+    public function test_expired_pending_records_auto_reject_after_the_window(): void
+    {
+        $this->createExpiryPolicy(OvertimePolicy::EXPIRE_AUTO_REJECT);
+        $record = $this->pendingRecord($this->teamMember, '2026-09-29');
+
+        Carbon::setTestNow('2026-10-07 09:00:00');
+        $this->artisan('overtime:expire-pending')->assertExitCode(0);
+
+        $record->refresh();
+        $this->assertSame(OvertimeRecord::STATUS_REJECTED, $record->status);
+        $this->assertSame(0, $this->dailyOvertime($this->teamMember, '2026-09-29'));
+
+        $this->assertDatabaseHas('overtime_approvals', [
+            'overtime_record_id' => $record->id,
+            'approver_user_id' => null,
+            'decision' => OvertimeApproval::REJECTED,
+            'minutes_after' => 0,
+        ]);
+
+        $rejected = $this->teamUser->notifications()->get()
+            ->first(fn ($n) => $n->data['title'] === 'Overtime rejected');
+        $this->assertNotNull($rejected);
+        $this->assertStringContainsString('Expired after 7 day(s)', $rejected->data['body']);
+    }
+
+    public function test_escalation_marks_the_record_expired_once(): void
+    {
+        // pendingRecord's policy already defaults to ESCALATE after 7 days.
+        $record = $this->pendingRecord($this->teamMember, '2026-09-29');
+
+        Carbon::setTestNow('2026-10-07 09:00:00');
+        $this->artisan('overtime:expire-pending')->assertExitCode(0);
+
+        // EXPIRED: locked against re-derivation, still countable as
+        // potential, and still decidable by a late approve/reject.
+        $this->assertSame(OvertimeRecord::STATUS_EXPIRED, $record->fresh()->status);
+        $this->assertTrue($record->fresh()->hasCountableOvertime());
+        $this->assertSame(0, $this->dailyOvertime($this->teamMember, '2026-09-29'));
+        $this->assertSame(1, OvertimeApproval::withoutGlobalScopes()
+            ->where('overtime_record_id', $record->id)
+            ->where('decision', OvertimeApproval::ESCALATED)
+            ->count());
+        $this->assertDatabaseHas('audit_logs', [
+            'organization_id' => $this->ctx['organization']->id,
+            'action' => 'overtime.escalated',
+        ]);
+
+        // A second sweep must not stack duplicate escalation markers.
+        $this->artisan('overtime:expire-pending')->assertExitCode(0);
+        $this->assertSame(1, OvertimeApproval::withoutGlobalScopes()
+            ->where('overtime_record_id', $record->id)
+            ->where('decision', OvertimeApproval::ESCALATED)
+            ->count());
+        $this->assertSame(OvertimeRecord::STATUS_EXPIRED, $record->fresh()->status);
+    }
+
+    /** Open the first policy version with MANAGER approval + the given action. */
+    private function createExpiryPolicy(string $action): OvertimePolicy
+    {
+        return OvertimePolicy::withoutGlobalScopes()->create([
+            'organization_id' => $this->ctx['organization']->id,
+            ...OvertimePolicy::defaults(),
+            'approval_mode' => OvertimePolicy::APPROVE_MANAGER,
+            'pending_expiry_days' => 7,
+            'pending_expiry_action' => $action,
+        ]);
     }
 
     /** MANAGER approval mode so derived overtime waits for a decision. */

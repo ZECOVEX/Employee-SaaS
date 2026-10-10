@@ -77,6 +77,7 @@ class LeaveController extends Controller
             'start_date' => ['required', 'date', 'after_or_equal:today'],
             'end_date' => ['required', 'date', 'after_or_equal:start_date'],
             'reason' => ['nullable', 'string', 'max:1000'],
+            'attachment' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:2048'],
         ]);
 
         $days = $this->leave->workingDays(
@@ -121,8 +122,15 @@ class LeaveController extends Controller
             'status' => LeaveRequest::PENDING,
         ]);
 
+        // Same private-disk handling as the web form (§19 parity).
+        if ($request->hasFile('attachment')) {
+            $path = $request->file('attachment')
+                ->store('leave-attachments/'.$request->user()->organization_id, 'local');
+            $requestModel->update(['attachment_path' => $path]);
+        }
+
         $this->audit->log('leave.requested', $requestModel, null, $requestModel->only([
-            'leave_type_id', 'start_date', 'end_date', 'days',
+            'leave_type_id', 'start_date', 'end_date', 'days', 'attachment_path',
         ]));
 
         return (new LeaveRequestResource($requestModel->load('leaveType:id,name,code')))

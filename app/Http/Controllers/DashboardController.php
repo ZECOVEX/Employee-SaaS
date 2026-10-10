@@ -8,8 +8,15 @@ use App\Models\Department;
 use App\Models\Employee;
 use App\Models\LeaveBalance;
 use App\Models\LeaveRequest;
+use App\Models\OvertimeRecord;
+use App\Models\RiskEvent;
 use App\Models\User;
 use App\Models\WorkSchedule;
+use App\Services\OvertimeService;
+use App\Services\ReportService;
+use App\Services\RiskService;
+use App\Services\SalaryCalculator;
+use App\Services\ScoreService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -17,7 +24,7 @@ use Illuminate\View\View;
 
 class DashboardController extends Controller
 {
-    public function admin(Request $request): View
+    public function admin(Request $request, ScoreService $scoring, RiskService $risk): View
     {
         Gate::authorize('dashboard.admin');
 
@@ -55,6 +62,67 @@ class DashboardController extends Controller
             ->avg('total_work_minutes');
         $stats['avg_attendance_hours'] = $avgMinutes ? round($avgMinutes / 60, 1) : 0.0;
 
+        // §18 score/overtime widgets + §15 admin visibility of risk.
+        $organization = $user->organization;
+        $monthStart = $today->copy()->startOfMonth()->toDateString();
+        $monthEnd = $today->copy()->endOfMonth()->toDateString();
+        $todayString = $today->toDateString();
+
+        $scores = [];
+        $atRisk = 0;
+
+        if ($organization) {
+            $bands = $risk->config($organization)['risk_bands'];
+            $lowestMin = (int) end($bands)['min'];
+            $currentMonth = $today->format('Y-m');
+
+            Employee::where('organization_id', $orgId)
+                ->where('status', 'active')
+                ->orderBy('id')
+                ->cursor()
+                ->each(function (Employee $employee) use ($scoring, $risk, $organization, $currentMonth, $lowestMin, &$scores, &$atRisk) {
+                    $score = $scoring->compute($employee, $currentMonth);
+
+                    if ($score === null) {
+                        return;
+                    }
+
+                    $scores[] = $score['score'];
+
+                    if ($risk->statusFor($organization, (float) $score['score'])['min'] === $lowestMin) {
+                        $atRisk++;
+                    }
+                });
+        }
+
+        $stats['avg_score'] = $scores === [] ? null : round(array_sum($scores) / count($scores), 1);
+        $stats['at_risk'] = $atRisk;
+        $stats['overtime_today'] = (int) OvertimeRecord::where('organization_id', $orgId)
+            ->where('work_date', $todayString)
+            ->whereIn('status', [
+                OvertimeRecord::STATUS_APPROVED,
+                OvertimeRecord::STATUS_AUTO_APPROVED,
+                OvertimeRecord::STATUS_PENDING,
+                OvertimeRecord::STATUS_EXPIRED,
+            ])
+            ->sum('countable_minutes');
+        $stats['pending_overtime'] = OvertimeRecord::where('organization_id', $orgId)
+            ->whereIn('status', [OvertimeRecord::STATUS_PENDING, OvertimeRecord::STATUS_EXPIRED])
+            ->count();
+        $stats['overtime_month'] = (int) OvertimeRecord::where('organization_id', $orgId)
+            ->whereBetween('work_date', [$monthStart, $monthEnd])
+            ->whereIn('status', [
+                OvertimeRecord::STATUS_APPROVED,
+                OvertimeRecord::STATUS_AUTO_APPROVED,
+                OvertimeRecord::STATUS_PENDING,
+                OvertimeRecord::STATUS_EXPIRED,
+            ])
+            ->sum('countable_minutes');
+        $stats['high_risk_alerts'] = RiskEvent::where('organization_id', $orgId)
+            ->where('period_start', '<=', $todayString)
+            ->where('period_end', '>=', $todayString)
+            ->count();
+
         $recentAudit = AuditLog::with('actor:id,name')
             ->where('organization_id', $orgId)
             ->orderByDesc('id')
@@ -64,8 +132,14 @@ class DashboardController extends Controller
         return view('dashboard.admin', compact('stats', 'recentAudit'));
     }
 
-    public function employee(Request $request): View
-    {
+    public function employee(
+        Request $request,
+        ScoreService $scoring,
+        RiskService $risk,
+        OvertimeService $overtime,
+        ReportService $reports,
+        SalaryCalculator $calculator,
+    ): View {
         Gate::authorize('dashboard.employee');
 
         $user = $request->user();
@@ -88,7 +162,24 @@ class DashboardController extends Controller
         $avgDeparture = null;
         $leaveBalance = ['total' => 0, 'used' => 0, 'remaining' => 0];
         $schedule = null;
+        $riskEvents = collect();
         $today = now($timezone);
+        $weekStart = $today->copy()->startOfWeek();
+        $weekEnd = $today->copy()->endOfWeek();
+        $organization = $user->organization;
+        $currency = $organization?->currency() ?? 'BDT';
+        $scoreData = null;
+        $scoreBand = null;
+        $monthOt = null;
+        $todayOt = null;
+        $weekOt = null;
+        $weekTotals = null;
+        $weekLateDeduction = 0.0;
+        $showOt = false;
+        $showOtPay = false;
+        $otByDay = collect();
+        $recentOt = collect();
+        $dayRows = [];
 
         if ($employee) {
             $schedule = WorkSchedule::effectiveFor($employee->organization_id, $today->toDateString());
@@ -107,8 +198,6 @@ class DashboardController extends Controller
                 'worked_minutes' => (int) $records->sum('total_work_minutes'),
             ];
 
-            $weekStart = $today->copy()->startOfWeek();
-            $weekEnd = $today->copy()->endOfWeek();
             $weekMinutes = (int) DailyAttendance::where('employee_id', $employee->id)
                 ->whereBetween('date', [$weekStart->toDateString(), $weekEnd->toDateString()])
                 ->sum('total_work_minutes');
@@ -137,11 +226,96 @@ class DashboardController extends Controller
                 'used' => (int) $balance->sum('used_days'),
                 'remaining' => (int) $balance->sum('total_days') - (int) $balance->sum('used_days'),
             ];
+
+            // §39: the dashboard surfaces high-risk warnings when the
+            // configured weekly late threshold (or an [OT] limit) is hit.
+            $riskEvents = RiskEvent::where('employee_id', $employee->id)
+                ->where('period_start', '<=', $today->toDateString())
+                ->where('period_end', '>=', $today->toDateString())
+                ->orderByDesc('id')
+                ->limit(5)
+                ->get();
+
+            // §39 main score card + working hours vs expected (overtime stays
+            // out of the worked figure — it is reported separately).
+            $scoreData = $scoring->compute($employee, $month->format('Y-m'));
+            $scoreBand = ($scoreData && $organization)
+                ? $risk->statusFor($organization, (float) $scoreData['score'])
+                : null;
+
+            $monthTotals = $reports->rangeTotals(
+                (int) $employee->organization_id,
+                $employee->id,
+                $monthStart->toDateString(),
+                $monthEnd->toDateString(),
+            );
+            $monthStats['expected_minutes'] = $monthTotals['expected_minutes'];
+            $monthStats['worked_display_minutes'] = $monthTotals['worked_capped_minutes'];
+
+            // [OT] card + today's record + per-day overlays for the calendar,
+            // recent-attendance table and day tooltips.
+            $monthOt = $overtime->summaryForRange($employee, $monthStart->toDateString(), $monthEnd->toDateString());
+            $showOt = (bool) $monthOt['eligible'];
+            $showOtPay = $showOt && (bool) $monthOt['show_pay'];
+
+            $todayOt = OvertimeRecord::query()
+                ->where('employee_id', $employee->id)
+                ->where('work_date', $today->toDateString())
+                ->first();
+
+            $weekOt = $overtime->summaryForRange($employee, $weekStart->toDateString(), $weekEnd->toDateString());
+            $weekTotals = $reports->rangeTotals(
+                (int) $employee->organization_id,
+                $employee->id,
+                $weekStart->toDateString(),
+                $weekEnd->toDateString(),
+            );
+
+            $otByDay = ($showOt && (bool) $monthOt['show_hours'])
+                ? OvertimeRecord::query()
+                    ->where('employee_id', $employee->id)
+                    ->whereBetween('work_date', [$monthStart->toDateString(), $monthEnd->toDateString()])
+                    ->with('approvals:id,overtime_record_id,decision,reason,decided_at')
+                    ->get()
+                    ->keyBy(fn (OvertimeRecord $record) => $record->work_date->toDateString())
+                : collect();
+
+            $recentOt = ($showOt && (bool) $monthOt['show_hours'] && $recent->isNotEmpty())
+                ? OvertimeRecord::query()
+                    ->where('employee_id', $employee->id)
+                    ->whereBetween('work_date', [
+                        $recent->last()->date->toDateString(),
+                        $recent->first()->date->toDateString(),
+                    ])
+                    ->get()
+                    ->keyBy(fn (OvertimeRecord $record) => $record->work_date->toDateString())
+                : collect();
+
+            // Day-level salary impact for the calendar tooltips and the
+            // weekly late deduction line (§39).
+            $estimate = $calculator->estimate($employee, $month->format('Y-m'));
+
+            if ($estimate !== null) {
+                foreach ($estimate['breakdown'] as $row) {
+                    $dayRows[$row['date']] = $row;
+
+                    if ($row['date'] >= $weekStart->toDateString()
+                        && $row['date'] <= $weekEnd->toDateString()
+                        && $row['late_minutes'] > 0) {
+                        $weekLateDeduction += (float) $row['deduction'];
+                    }
+                }
+            }
+
+            $weekLateDeduction = round($weekLateDeduction, 2);
         }
 
         return view('dashboard.employee', compact(
             'employee', 'user', 'records', 'monthStats', 'recent', 'weekMinutes',
             'avgArrival', 'avgDeparture', 'leaveBalance', 'schedule', 'month', 'today',
+            'riskEvents', 'scoreData', 'scoreBand', 'monthOt', 'todayOt', 'weekOt',
+            'weekTotals', 'weekLateDeduction', 'showOt', 'showOtPay', 'otByDay',
+            'recentOt', 'dayRows', 'currency', 'weekStart', 'weekEnd',
         ));
     }
 }

@@ -5,8 +5,11 @@ namespace App\Http\Controllers;
 use App\Models\DailyAttendance;
 use App\Models\Department;
 use App\Models\Employee;
+use App\Models\OvertimeRecord;
 use App\Models\SalaryRecord;
 use App\Services\ReportService;
+use App\Services\RiskService;
+use App\Services\ScoreService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -19,7 +22,11 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReportController extends Controller
 {
-    public function __construct(private readonly ReportService $reports) {}
+    public function __construct(
+        private readonly ReportService $reports,
+        private readonly ScoreService $scoring,
+        private readonly RiskService $risk,
+    ) {}
 
     public function attendance(Request $request): View
     {
@@ -50,6 +57,20 @@ class ReportController extends Controller
     }
 
     /**
+     * Overtime report (§41 [OT]) — day rows with raw/approved minutes,
+     * multiplier, pay (pay column only for salary.view), approver, status.
+     */
+    public function overtime(Request $request): View
+    {
+        Gate::authorize('reports.view');
+
+        $data = $this->overtimeData($this->filters($request, 'overtime'));
+        $data['showPay'] = Gate::allows('salary.view');
+
+        return view('reports.overtime', $data);
+    }
+
+    /**
      * CSV export for any report type. Excel/PDF: open the CSV in Excel or
      * print the HTML view to PDF from the browser.
      */
@@ -63,6 +84,7 @@ class ReportController extends Controller
             'attendance' => $this->attendanceCsv($filters),
             'monthly' => $this->monthlyCsv($filters),
             'salary' => $this->salaryCsv($filters),
+            'overtime' => $this->overtimeCsv($filters),
             default => abort(404),
         };
 
@@ -102,6 +124,14 @@ class ReportController extends Controller
                 'month' => ['nullable', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/'],
                 'employee_id' => ['nullable', 'integer'],
                 'department_id' => ['nullable', 'integer'],
+            ],
+            'overtime' => [
+                'from' => ['nullable', 'date'],
+                'to' => ['nullable', 'date'],
+                'employee_id' => ['nullable', 'integer'],
+                'department_id' => ['nullable', 'integer'],
+                'day_type' => ['nullable', Rule::in(['WORKING_DAY', 'WEEKEND', 'HOLIDAY', 'LEAVE_DAY'])],
+                'status' => ['nullable', Rule::in(['PENDING', 'APPROVED', 'REJECTED', 'FLAGGED'])],
             ],
             default => abort(404),
         };
@@ -194,8 +224,33 @@ class ReportController extends Controller
      */
     private function monthlyRows(array $filters): array
     {
+        $organization = auth()->user()->organization;
         $organizationId = (int) auth()->user()->organization_id;
         $ledger = $this->reports->ledger($organizationId, $filters['month']);
+
+        // One pass for the overtime split (§41 "approved / pending").
+        $otByEmployee = [];
+        OvertimeRecord::query()
+            ->whereBetween('work_date', [
+                $filters['month'].'-01',
+                Carbon::createFromFormat('!Y-m-d', $filters['month'].'-01')->endOfMonth()->toDateString(),
+            ])
+            ->whereIn('status', [
+                OvertimeRecord::STATUS_APPROVED,
+                OvertimeRecord::STATUS_AUTO_APPROVED,
+                OvertimeRecord::STATUS_PENDING,
+            ])
+            ->get(['employee_id', 'status', 'countable_minutes'])
+            ->each(function (OvertimeRecord $record) use (&$otByEmployee) {
+                $key = $record->employee_id;
+                $otByEmployee[$key] ??= ['approved' => 0, 'pending' => 0];
+
+                if ($record->status === OvertimeRecord::STATUS_PENDING) {
+                    $otByEmployee[$key]['pending'] += $record->countable_minutes;
+                } else {
+                    $otByEmployee[$key]['approved'] += $record->countable_minutes;
+                }
+            });
 
         $employees = Employee::with(['user:id,name', 'department:id,name'])
             ->where('status', 'active')
@@ -207,6 +262,8 @@ class ReportController extends Controller
         $rows = [];
         foreach ($employees as $employee) {
             $totals = $this->reports->monthlyTotals($organizationId, $employee->id, $filters['month'], $ledger);
+            $score = $this->scoring->compute($employee, $filters['month']);
+            $ot = $otByEmployee[$employee->id] ?? ['approved' => 0, 'pending' => 0];
 
             $rows[] = [
                 'name' => $employee->user?->name ?? '—',
@@ -217,9 +274,14 @@ class ReportController extends Controller
                 'late' => $totals['late'],
                 'leave' => $totals['leave'],
                 'worked_hours' => round($totals['worked_minutes'] / 60, 1),
-                'overtime_hours' => round($totals['overtime_minutes'] / 60, 1),
+                'ot_approved_hours' => round($ot['approved'] / 60, 1),
+                'ot_pending_hours' => round($ot['pending'] / 60, 1),
                 'late_minutes' => $totals['late_minutes'],
                 'scheduled_days' => $totals['scheduled_days'],
+                'score' => $score ? round($score['score'], 2) : null,
+                'status' => ($score && $organization)
+                    ? $this->risk->statusFor($organization, (float) $score['score'])['label']
+                    : '—',
             ];
         }
 
@@ -335,14 +397,17 @@ class ReportController extends Controller
                 $row['late'],
                 $row['leave'],
                 $row['worked_hours'],
-                $row['overtime_hours'],
+                $row['ot_approved_hours'],
+                $row['ot_pending_hours'],
                 $row['late_minutes'],
+                $row['score'] ?? '',
+                $row['status'],
             ];
         }
 
         return [
             sprintf('monthly_report_%s.csv', $filters['month']),
-            ['Employee', 'Code', 'Department', 'Scheduled days', 'Present', 'Absent', 'Late', 'Leave', 'Working hours', 'Overtime hours', 'Late minutes'],
+            ['Employee', 'Code', 'Department', 'Scheduled days', 'Present', 'Absent', 'Late', 'Leave', 'Working hours', 'Overtime approved hours', 'Overtime pending hours', 'Late minutes', 'Score', 'Status'],
             $rows,
         ];
     }
@@ -373,6 +438,99 @@ class ReportController extends Controller
         return [
             sprintf('salary_report_%s.csv', $filters['month']),
             ['Employee', 'Code', 'Department', 'Basic', 'Allowances', 'Bonus', 'Other deductions', 'Gross', 'Net'],
+            $rows,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $filters
+     * @return array<string, mixed>
+     */
+    private function overtimeData(array $filters): array
+    {
+        return [
+            'type' => 'overtime',
+            'filters' => $filters,
+            'options' => $this->filterOptions(),
+            'rows' => $this->overtimeQuery($filters)->get(),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $filters
+     * @return Builder<OvertimeRecord>
+     */
+    private function overtimeQuery(array $filters)
+    {
+        $query = OvertimeRecord::with(['employee.user:id,name', 'employee.department:id,name', 'approvals.approver:id,name'])
+            ->whereBetween('work_date', [$filters['from'], $filters['to']])
+            ->orderBy('work_date')
+            ->orderBy('id');
+
+        if (! empty($filters['employee_id'])) {
+            $query->where('employee_id', (int) $filters['employee_id']);
+        }
+        if (! empty($filters['department_id'])) {
+            $query->whereHas('employee', fn ($q) => $q->where('department_id', (int) $filters['department_id']));
+        }
+        if (! empty($filters['day_type'])) {
+            $query->where('day_type', $filters['day_type']);
+        }
+        if (! empty($filters['status'])) {
+            // "Approved" covers both manual and automatic approvals (§41).
+            if ($filters['status'] === 'APPROVED') {
+                $query->whereIn('status', [OvertimeRecord::STATUS_APPROVED, OvertimeRecord::STATUS_AUTO_APPROVED]);
+            } else {
+                $query->where('status', $filters['status']);
+            }
+        }
+
+        return $query;
+    }
+
+    /**
+     * Pay is a restricted column (§41): only users with salary.view export it.
+     *
+     * @param  array<string, mixed>  $filters
+     * @return array{0: string, 1: list<string>, 2: list<list<string|int|float>>}
+     */
+    private function overtimeCsv(array $filters): array
+    {
+        $showPay = Gate::allows('salary.view');
+
+        $headers = ['Employee', 'Code', 'Department', 'Date', 'Day type', 'Raw minutes', 'Approved minutes', 'Multiplier'];
+        if ($showPay) {
+            $headers[] = 'Estimated pay';
+        }
+        $headers[] = 'Approver';
+        $headers[] = 'Status';
+
+        $rows = [];
+        foreach ($this->overtimeQuery($filters)->get() as $record) {
+            $approval = $record->approvals->whereNotNull('approver_user_id')->last();
+
+            $row = [
+                $record->employee?->user?->name ?? '',
+                $record->employee?->employee_code ?? '',
+                $record->employee?->department?->name ?? '',
+                $record->work_date->toDateString(),
+                $record->day_type,
+                $record->raw_minutes,
+                $record->countable_minutes,
+                (float) $record->multiplier,
+            ];
+            if ($showPay) {
+                $row[] = (float) $record->estimated_pay;
+            }
+            $row[] = $approval?->approver?->name
+                ?? ($record->status === OvertimeRecord::STATUS_AUTO_APPROVED ? 'Automatic' : '');
+            $row[] = $record->status;
+            $rows[] = $row;
+        }
+
+        return [
+            sprintf('overtime_report_%s_%s.csv', $filters['from'], $filters['to']),
+            $headers,
             $rows,
         ];
     }

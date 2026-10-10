@@ -16,11 +16,15 @@ use App\Http\Controllers\OvertimeController;
 use App\Http\Controllers\OvertimePolicyController;
 use App\Http\Controllers\PayslipController;
 use App\Http\Controllers\PlatformController;
+use App\Http\Controllers\PositionController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\SalaryController;
 use App\Http\Controllers\ScheduleController;
+use App\Http\Controllers\ScoringSettingsController;
+use App\Http\Controllers\SearchController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\StatisticsController;
+use App\Http\Controllers\SupportTicketController;
 use App\Http\Controllers\TerminalController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
@@ -55,10 +59,38 @@ Route::middleware(['auth', 'verified', 'organization', 'company'])
         Route::resource('departments', DepartmentController::class)
             ->except(['show']);
 
+        // Positions (designations) — `positions.manage` enforced in the
+        // controller; the dropdown on the employee form needs no gate.
+        Route::resource('positions', PositionController::class)
+            ->except(['show']);
+
         Route::resource('employees', EmployeeController::class);
 
         Route::resource('users', UserController::class)
             ->except(['show']);
+
+        // Admin/manager issues an 8-char temporary password (§ password
+        // recovery); `users.manage` enforced in the controller.
+        Route::post('users/{user}/reset-password', [UserController::class, 'resetPassword'])
+            ->name('users.reset_password');
+
+        // Password-recovery support tickets — filed by guests from the
+        // forgot-password page; Gate::support.view = admins + managers +
+        // department managers.
+        Route::get('support', [SupportTicketController::class, 'index'])
+            ->name('support.index');
+        Route::get('support/{ticket}', [SupportTicketController::class, 'show'])
+            ->name('support.show');
+        Route::post('support/{ticket}/reply', [SupportTicketController::class, 'reply'])
+            ->name('support.reply');
+        Route::post('support/{ticket}/reset-password', [SupportTicketController::class, 'resetPassword'])
+            ->name('support.reset_password');
+        Route::post('support/{ticket}/resolve', [SupportTicketController::class, 'resolve'])
+            ->name('support.resolve');
+
+        // Global search - per-section RBAC is enforced in the controller.
+        Route::get('search', [SearchController::class, 'index'])
+            ->name('search.index');
 
         Route::get('audit-logs', [AuditLogController::class, 'index'])
             ->middleware('permission:audit.view')
@@ -101,6 +133,15 @@ Route::middleware(['auth', 'verified', 'organization', 'company'])
         Route::put('settings/overtime', [OvertimePolicyController::class, 'update'])
             ->middleware('permission:settings.manage')
             ->name('overtime-policy.update');
+
+        // Phase 5 — scoring & risk settings (§15/§16): weights, status
+        // bands, the weekly late-risk rule and the [OT] overwork notice.
+        Route::get('settings/scoring', [ScoringSettingsController::class, 'edit'])
+            ->middleware('permission:settings.manage')
+            ->name('scoring-settings.edit');
+        Route::put('settings/scoring', [ScoringSettingsController::class, 'update'])
+            ->middleware('permission:settings.manage')
+            ->name('scoring-settings.update');
 
         // Phase 4 — billing & subscription (§54): plans, usage cap, invoices.
         Route::get('billing', [BillingController::class, 'index'])
@@ -196,6 +237,10 @@ Route::middleware(['auth', 'verified', 'organization', 'company'])
         Route::get('reports/salary', [ReportController::class, 'salary'])
             ->middleware('permission:reports.view')
             ->name('reports.salary');
+        // Phase 6 - overtime report (§41 [OT]).
+        Route::get('reports/overtime', [ReportController::class, 'overtime'])
+            ->middleware('permission:reports.view')
+            ->name('reports.overtime');
         Route::get('reports/{type}/export', [ReportController::class, 'export'])
             ->middleware('permission:reports.view')
             ->name('reports.export');
@@ -218,6 +263,9 @@ Route::middleware(['auth', 'verified', 'organization', 'company'])
             ->name('leave.reject');
         Route::post('leave/{leaveRequest}/cancel', [LeaveController::class, 'cancel'])
             ->name('leave.cancel');
+        Route::get('leave/{leaveRequest}/attachment', [LeaveController::class, 'attachment'])
+            ->middleware('permission:leave.view')
+            ->name('leave.attachment');
 
         Route::get('nfc-cards', [NfcCardController::class, 'index'])
             ->middleware('permission:nfc.view')

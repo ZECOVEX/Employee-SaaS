@@ -32,6 +32,14 @@ class AppServiceProvider extends ServiceProvider
 
         Gate::define('platform.organizations', fn (User $user) => $user->is_platform_admin);
 
+        // Password-recovery support tickets: org admins, the manager role,
+        // and anyone who actually manages a department (not a catalog key —
+        // visibility follows departments.manager_id, so @can/middleware both
+        // resolve through this gate).
+        Gate::define('support.view', fn (User $user) => $user->hasRole('company_admin')
+            || $user->hasRole('manager')
+            || $user->managedDepartments()->exists());
+
         View::composer('*', function ($view) {
             $user = auth()->user();
             if ($user && ! $user->is_platform_admin && $user->organization_id) {

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Employee;
 use App\Models\Payslip;
+use App\Notifications\PayslipReady;
 use App\Services\AuditLogger;
 use App\Services\SalaryCalculator;
 use Carbon\Carbon;
@@ -84,6 +85,14 @@ class PayslipController extends Controller
             'net_salary' => $payslip->net_salary,
         ]);
 
+        $employee->user?->notify(new PayslipReady(
+            $payslip->periodLabel(),
+            $payslip->currency.' '.number_format((float) $payslip->net_salary, 2),
+            $payslip->revision,
+            $employee->id,
+            $payslip->id,
+        ));
+
         return redirect()
             ->route('salary.show', $employee)
             ->with('status', 'Payslip finalized for '.$payslip->periodLabel().' — it will not change when attendance or rules change later.');
@@ -141,6 +150,15 @@ class PayslipController extends Controller
             'revision' => $new->revision,
             'net_salary' => $new->net_salary,
         ]);
+
+        $employee->user?->notify(new PayslipReady(
+            $new->periodLabel(),
+            $new->currency.' '.number_format((float) $new->net_salary, 2),
+            $new->revision,
+            $employee->id,
+            $new->id,
+            revised: true,
+        ));
 
         return redirect()
             ->route('salary.show', $employee)

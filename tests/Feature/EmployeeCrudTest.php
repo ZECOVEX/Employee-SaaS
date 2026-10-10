@@ -205,4 +205,91 @@ class EmployeeCrudTest extends TestCase
             ->assertSee('EMP-FA')
             ->assertDontSee('EMP-FB');
     }
+
+    public function test_employee_create_syncs_extended_profile_fields(): void
+    {
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
+        $admin = $this->makeUser($org, 'company_admin', $roles);
+
+        $response = $this->actingAs($admin)->post(route('employees.store'), [
+            'name' => 'Full Fields',
+            'email' => 'full@acme.test',
+            'password' => 'password',
+            'password_confirmation' => 'password',
+            'employee_code' => 'EMP-FULL',
+            'status' => 'active',
+            'employment_type' => 'full_time',
+            'phone' => '+8801800000000',
+            'address' => '12 Lake Road',
+            'date_of_birth' => '1995-04-12',
+            'work_location' => 'Dhaka HQ',
+            'emergency_contact_name' => 'Rita Doe',
+            'emergency_contact_phone' => '+8801711111111',
+            'overtime_eligibility' => Employee::OT_NOT_ELIGIBLE,
+        ]);
+
+        $employee = Employee::where('employee_code', 'EMP-FULL')->firstOrFail();
+        $response->assertRedirect(route('employees.show', $employee));
+
+        $this->assertDatabaseHas('employees', [
+            'organization_id' => $org->id,
+            'employee_code' => 'EMP-FULL',
+            'address' => '12 Lake Road',
+            'work_location' => 'Dhaka HQ',
+            'emergency_contact_name' => 'Rita Doe',
+            'emergency_contact_phone' => '+8801711111111',
+            'overtime_eligibility' => Employee::OT_NOT_ELIGIBLE,
+        ]);
+        $this->assertSame('1995-04-12', $employee->fresh()->date_of_birth?->toDateString());
+    }
+
+    public function test_employee_show_renders_header_cards_overview_fields_and_tabs(): void
+    {
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
+        $admin = $this->makeUser($org, 'company_admin', $roles);
+        $user = $this->makeUser($org, 'employee', $roles, ['email' => 'show@acme.test']);
+        $employee = $this->makeEmployee($org, $user, 'EMP-SHOW');
+        $employee->update([
+            'address' => '9 Palm Ave',
+            'work_location' => 'Remote',
+            'emergency_contact_name' => 'Sam Doe',
+            'overtime_eligibility' => Employee::OT_ELIGIBLE,
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('employees.show', $employee))
+            ->assertOk()
+            // §40 header cards.
+            ->assertSee('Attendance Score')
+            ->assertSee('Overtime This Month')
+            // Extended overview fields.
+            ->assertSee('Work location')
+            ->assertSee('9 Palm Ave')
+            ->assertSee('Remote')
+            ->assertSee('Emergency contact')
+            ->assertSee('Sam Doe')
+            ->assertSee('Overtime eligibility')
+            ->assertSee('Always eligible')
+            // Tabs.
+            ->assertSee('Monthly Status')
+            ->assertSee('Leave')
+            ->assertSee('NFC Card')
+            ->assertSee('Audit History');
+    }
+
+    public function test_manager_dropdown_never_leaks_other_tenants(): void
+    {
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
+        $admin = $this->makeUser($org, 'company_admin', $roles);
+        $this->makeUser($org, 'manager', $roles, ['name' => 'Local Leader']);
+
+        ['organization' => $otherOrg, 'roles' => $otherRoles] = $this->makeOrganization('Other Co');
+        $this->makeUser($otherOrg, 'manager', $otherRoles, ['name' => 'Foreign Manager']);
+
+        $this->actingAs($admin)
+            ->get(route('employees.create'))
+            ->assertOk()
+            ->assertSee('Local Leader')
+            ->assertDontSee('Foreign Manager');
+    }
 }

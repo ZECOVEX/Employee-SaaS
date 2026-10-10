@@ -48,6 +48,11 @@ class SettingsController extends Controller
             'max_deduction_percent' => ['sometimes', 'integer', 'min:0', 'max:100'],
         ]);
 
+        $salaryKeys = [
+            'currency', 'late_deduction', 'deduction_grace_minutes', 'deduction_rounding',
+            'absence_deduction', 'half_day_deduction', 'unpaid_leave_deduction', 'max_deduction_percent',
+        ];
+
         $old = [
             'name' => $organization->name,
             'timezone' => $organization->timezone,
@@ -55,15 +60,19 @@ class SettingsController extends Controller
             'time_format' => $organization->timeFormat(),
         ];
 
+        // Salary rules live in settings — capture their previous values too
+        // so the audit diff shows real old -> new pairs (§28/Phase 7).
+        foreach ($salaryKeys as $key) {
+            if (array_key_exists($key, $data)) {
+                $old[$key] = ($organization->settings ?? [])[$key] ?? null;
+            }
+        }
+
         $settings = array_merge($organization->settings ?? [], [
             'debounce_seconds' => (int) $data['debounce_seconds'],
             'time_format' => $data['time_format'],
         ]);
 
-        $salaryKeys = [
-            'currency', 'late_deduction', 'deduction_grace_minutes', 'deduction_rounding',
-            'absence_deduction', 'half_day_deduction', 'unpaid_leave_deduction', 'max_deduction_percent',
-        ];
         $salaryChanges = [];
 
         foreach ($salaryKeys as $key) {

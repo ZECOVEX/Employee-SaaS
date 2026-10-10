@@ -1,6 +1,7 @@
 <?php
 
 use App\Notifications\PasswordChanged;
+use App\Services\AuditLogger;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules\Password;
@@ -34,6 +35,11 @@ new class extends Component
         ]);
 
         Auth::user()->notify(new PasswordChanged);
+
+        // Phase 7: password changes are audited; the hash is never stored.
+        app(AuditLogger::class)->log('password.changed', Auth::user(), null, [
+            'password' => '(redacted)',
+        ]);
 
         $this->reset('current_password', 'password', 'password_confirmation');
 

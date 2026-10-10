@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\AuditLog;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\View\View;
@@ -16,12 +17,26 @@ class AuditLogController extends Controller
         $logs = AuditLog::with('actor:id,name,email')
             ->when($request->filled('action'), fn ($q) => $q->where('action', $request->string('action')->toString()))
             ->when($request->filled('resource_type'), fn ($q) => $q->where('resource_type', $request->string('resource_type')->toString()))
+            ->when($request->filled('actor'), function ($q) use ($request) {
+                // actor=0 selects system/actorless entries.
+                $request->integer('actor') === 0
+                    ? $q->whereNull('actor_user_id')
+                    : $q->where('actor_user_id', $request->integer('actor'));
+            })
+            ->when($request->filled('from'), fn ($q) => $q->whereDate('created_at', '>=', $request->date('from')))
+            ->when($request->filled('to'), fn ($q) => $q->whereDate('created_at', '<=', $request->date('to')))
             ->orderByDesc('id')
             ->paginate(25)
             ->withQueryString();
 
         $actions = AuditLog::select('action')->distinct()->orderBy('action')->pluck('action');
+        $resourceTypes = AuditLog::select('resource_type')->distinct()
+            ->whereNotNull('resource_type')->orderBy('resource_type')->pluck('resource_type');
 
-        return view('audit.index', compact('logs', 'actions'));
+        $actors = User::whereIn('id', AuditLog::select('actor_user_id')->distinct()->whereNotNull('actor_user_id'))
+            ->orderBy('name')
+            ->get(['id', 'name']);
+
+        return view('audit.index', compact('logs', 'actions', 'resourceTypes', 'actors'));
     }
 }

@@ -10,6 +10,8 @@ use App\Models\User;
 use App\Notifications\PasswordChanged;
 use App\Services\WorkforceDefaults;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\Concerns\CreatesOrganizations;
 use Tests\TestCase;
 
@@ -198,6 +200,51 @@ class ApiV1Test extends TestCase
             ->getJson('/api/v1/leave')
             ->assertOk()
             ->assertJsonCount(1, 'data');
+    }
+
+    public function test_leave_attachment_is_stored_and_exposed_through_api_resources(): void
+    {
+        Storage::fake('local');
+
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization('Leave Att API');
+        app(WorkforceDefaults::class)->apply($org);
+
+        $employeeUser = $this->makeUser($org, 'employee', $roles);
+        $this->makeEmployee($org, $employeeUser, 'EMP-LVA');
+
+        $type = LeaveType::withoutGlobalScopes()
+            ->where('organization_id', $org->id)
+            ->where('is_active', true)
+            ->firstOrFail();
+
+        $token = $this->apiLogin($employeeUser);
+        $start = now()->addWeek();
+
+        $response = $this->withToken($token)->postJson('/api/v1/leave', [
+            'leave_type_id' => $type->id,
+            'start_date' => $start->toDateString(),
+            'end_date' => $start->copy()->addDays(2)->toDateString(),
+            'reason' => 'With certificate',
+            'attachment' => UploadedFile::fake()->create('certificate.pdf', 10, 'application/pdf'),
+        ]);
+
+        $response->assertStatus(201);
+        $path = $response->json('data.attachment_path');
+        $this->assertNotNull($path);
+        $this->assertStringContainsString('leave-attachments/'.$org->id, $path);
+        Storage::disk('local')->assertExists($path);
+
+        // Resource carries attachment + review fields for full parity (B2).
+        $this->withToken($token)
+            ->getJson('/api/v1/leave/mine')
+            ->assertOk()
+            ->assertJsonPath('data.0.attachment_path', $path)
+            ->assertJsonStructure([
+                'data' => [[
+                    'id', 'status', 'attachment_path',
+                    'reviewed_by', 'reviewed_at', 'review_note',
+                ]],
+            ]);
     }
 
     public function test_notifications_api_is_scoped_to_the_caller_and_marks_read(): void

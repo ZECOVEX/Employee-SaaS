@@ -45,6 +45,8 @@ class OvertimeRecord extends Model
 
     public const STATUS_REJECTED = 'REJECTED';
 
+    public const STATUS_EXPIRED = 'EXPIRED';
+
     public const STATUS_FLAGGED = 'FLAGGED';
 
     public const DAY_WORKING = 'WORKING_DAY';
@@ -91,10 +93,17 @@ class OvertimeRecord extends Model
         return $this->hasMany(OvertimeApproval::class);
     }
 
-    /** Approved decisions are locked (§73-E); changes go through adjust. */
+    /**
+     * Approved/rejected decisions are locked (§73-E); escalated-expired
+     * records stay put until the day itself changes. Changes go adjust.
+     */
     public function isLocked(): bool
     {
-        return in_array($this->status, [self::STATUS_APPROVED, self::STATUS_REJECTED], true);
+        return in_array($this->status, [
+            self::STATUS_APPROVED,
+            self::STATUS_REJECTED,
+            self::STATUS_EXPIRED,
+        ], true);
     }
 
     public function hasCountableOvertime(): bool
@@ -102,6 +111,7 @@ class OvertimeRecord extends Model
         return $this->countable_minutes > 0
             && in_array($this->status, [
                 self::STATUS_PENDING,
+                self::STATUS_EXPIRED,
                 self::STATUS_AUTO_APPROVED,
                 self::STATUS_APPROVED,
             ], true);
@@ -110,8 +120,12 @@ class OvertimeRecord extends Model
     /** "2h 10m" / "45m" label for cards and tables. */
     public function minutesLabel(?int $minutes = null): string
     {
-        $minutes = $minutes ?? $this->countable_minutes;
+        return self::minutesLabelFor($minutes ?? $this->countable_minutes);
+    }
 
+    /** Same formatting without a record instance (views, breakdowns). */
+    public static function minutesLabelFor(int $minutes): string
+    {
         if ($minutes <= 0) {
             return '0m';
         }

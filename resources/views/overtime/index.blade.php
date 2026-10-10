@@ -10,6 +10,18 @@
                 pay is shown only when your company policy allows it.
             </p>
 
+            @if ($compMinutes > 0)
+                <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-4 flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-gray-800">Comp time balance</p>
+                        <p class="text-xs text-gray-500 mt-1">
+                            Accrued from approved compensatory overtime instead of pay (§73-F).
+                        </p>
+                    </div>
+                    <p class="text-lg font-semibold text-gray-900">{{ $compLabel }}</p>
+                </div>
+            @endif
+
             <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
                 <table class="min-w-full divide-y divide-gray-200 text-sm">
                     <thead class="bg-gray-50">

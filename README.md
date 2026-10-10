@@ -1,4 +1,4 @@
-# Employee Management SaaS (Phases 1–4)
+# Employee Management SaaS (Phases 1–6)
 
 Multi-tenant employee management platform built with Laravel 13, Livewire 3, and Breeze (Volt). Each registered organization (tenant) gets isolated employees, departments, users, roles, and audit logs.
 
@@ -45,9 +45,9 @@ Open http://localhost:8000 — the entrypoint generates `APP_KEY`, caches config
 ### Phase 1 — Core platform
 - **Auth**: login, registration with organization provisioning, password reset, email verification
 - **Tenancy**: shared database + `organization_id` on all tenant tables; `OrganizationScope` global scope auto-filters queries
-- **RBAC**: 4 roles per org (Company Admin, HR, Manager, Employee), 28-permission catalog, Laravel Gates
+- **RBAC**: 4 roles per org (Company Admin, HR, Manager, Employee), 30-permission catalog, Laravel Gates
 - **Employees**: full CRUD, employee codes unique per tenant, profile + employment fields
-- **Departments**: CRUD, auto-generated codes, manager assignment
+- **Departments**: CRUD, auto-generated codes, manager assignment; **Positions**: designation catalog (title + optional department) feeding the employee form
 - **Users & roles**: manage org members, assign roles
 - **Dashboards**: admin dashboard (org stats + today's Present/Late/Absent/On leave + avg attendance) and employee dashboard (GitHub-style attendance calendar, month stats, worked-hours, leave balance, recent activity)
 - **Audit logs**: CRUD actions recorded with actor, IP, old/new values
@@ -72,14 +72,35 @@ Open http://localhost:8000 — the entrypoint generates `APP_KEY`, caches config
 ### Phase 4 — Platform
 - **Notifications (§25/§7)**: DB + email via a shared Blade mail template for leave status changes, attendance corrections, NFC card status, salary updates, password changes, and once-per-day late-arrival alerts; in-app center (`/notifications`) with unread bell in the nav
 - **Billing (§54)**: FREE / STARTER / BUSINESS / ENTERPRISE plan catalog (`PlanSeeder`), per-org subscription + employee-count cap enforced on employee creation (`employee_limit`), plan switching with generated invoices, self-service Billing page (`settings.manage`); `BillingService` is decoupled from Stripe for later integration
-- **API v1 (§29/§55)**: `/api/v1/*` with Sanctum personal-access tokens (`POST /api/v1/login` → 30-day token), `EnsureApiOrganization` middleware (suspended orgs blocked), Eloquent API resources for users/employees/departments/attendance/leave/notifications/salary/audit, per-route `permission:` middleware mirroring the web UI
+- **API v1 (§29/§55)**: `/api/v1/*` with Sanctum personal-access tokens (`POST /api/v1/auth/login` → 30-day token), `EnsureApiOrganization` middleware (suspended orgs blocked), Eloquent API resources for users/employees/departments/attendance/leave/notifications/salary/audit, per-route `permission:` middleware mirroring the web UI
 - **Live attendance board (§19)**: `GET attendance/live` with Server-Sent Events stream (`GET attendance/live/stream`, bounded by `LIVE_STREAM_SECONDS`) plus a JSON polling fallback (`GET attendance/live/poll?after=<hash>`); running OVERTIME badge after the scheduled end of day; gated `attendance.view`
 - **Docker + CI**: multi-stage `Dockerfile` (composer + vite + php:8.4-apache) with boot entrypoint, `docker-compose.yml` (SQLite volume), and `.github/workflows/ci.yml` (Pint + PHPUnit + Vite build)
+
+### Phase 5 — Scoring & overtime
+- **Overtime (§73)**: effective-dated org policy (detection mode, start threshold, rounding, daily/weekly/monthly caps, day-type multipliers, PAID vs COMP_TIME, auto/manual approval modes) with a Settings page (`settings.manage`); daily detection on every attendance change writes one `overtime_records` row per employee-day (raw → countable minutes, multiplier, hourly-rate snapshot + estimated pay); approval queue with approve/reject/minute-adjust (`overtime.manage`) and a full decision trail; comp-time ledger, self-service "My Overtime" page, and `overtime:expire-pending` (daily) for pending-record expiry
+- **Score engine (§16)**: monthly attendance score = Attendance Rate × 40% + Punctuality × 25% + Working Hours × 20% + Leave Compliance × 15% (weights configurable per org), optional capped overtime bonus, never capped at 100; Statistics shows the full component breakdown with inputs
+- **Scoring & risk settings (§15)**: Settings → "Scoring & risk" configures score weights, risk status bands (label + minimum score), the weekly late-risk rule (threshold, calendar week vs rolling 7 days, level, recipients, per-window suppression) and the [OT] overwork rule (off by default; weekly/monthly minute limits + consecutive-days streak)
+- **Risk detection (§15/§39)**: thresholds fire once per window into suppressible `risk_events` and notify employee/manager/HR (database + mail); surfaced on Statistics (risk status, late days this week, configured threshold, High-Risk Alert, OT Limit Notice), the employee dashboard banner, the notification center, and the admin dashboard; `risk:evaluate` (daily) sweeps missed windows
+- **Monthly status (§17)**: `employee_monthly_status` snapshots (score + components, day counts, overtime totals) generated by `status:generate` on the 1st after pending overtime is settled — never rewritten once finalized
+- **Admin dashboard (§18)**: average score, at-risk employees, high-risk alerts, overtime today, pending overtime approvals, overtime hours this month
+
+### Phase 6 — Analytics & reporting
+- **Statistics (§39)**: month + week (Monday-anchored, prev/next nav) filters; MONTHLY OVERVIEW card (day counts, worked vs expected, avg arrival/departure, remaining leave, score + band), WEEKLY ATTENDANCE card, and the OVERTIME / EXTRA TIME section (approved/pending/rejected splits, weekday vs weekend/holiday minutes, multipliers, earnings behind salary visibility, configured weekly/monthly limit usage with "over limit" warning, per-day breakdown with approver) — non-eligible employees see a muted note instead of numbers
+- **Overtime report (§41)**: `reports/overtime` with employee/department/date-range/day-type/status filters (Approved includes auto-approved), raw/approved minutes, multiplier, pay, approver and status per row; the pay column and CSV `Estimated pay` require `salary.view`; CSV export for all four report types
+- **Monthly report (§41)**: live Score (§16) + Status band (§15) columns and an overtime approved/pending hours split replace the old reserved cells
+- **Analytics**: 6-month overtime trend chart (approved vs pending hours) alongside the existing attendance/department/weekday/payroll cards
+- **Employee dashboard (§39)**: main attendance-score card with band, worked vs expected hours, [OT] overtime card (month approved/pending/rejected, today's record, est. overtime pay when visible — hidden entirely for non-eligible employees, deep link to Statistics), calendar overtime dots (solid approved / hollow pending) with day tooltips incl. overtime status/pay and salary deduction, recent-attendance "+1h 15m OT (pending)" line, and a This Week summary below the calendar (present/late/absent/leave, worked/expected, late minutes, late salary deduction, overtime split + pay)
+
+## Post-phase spec leftovers (shipped)
+
+- **Global search (§42)**: navbar search over employee code / name / email / department / designation plus NFC card tokens; tenant-scoped, per-section RBAC (`employees.view` / `nfc.view`), pure managers only their own team
+- **Leave attachment**: optional PDF/JPG/PNG/WebP upload (≤ 2 MB) on the leave request form, stored on the private disk, downloadable with the same visibility rules as the leave index
+- **Phase 7 notifications**: `PayslipReady` on payslip finalize/revise and `MonthlyStatusReady` (score + status band) whenever a monthly status snapshot is finalized
 
 ## Tests
 
 ```bash
-php artisan test        # 172 tests
+php artisan test        # 279 tests
 vendor/bin/pint app tests routes database bootstrap resources --format agent # code style
 ```
 
@@ -88,7 +109,15 @@ vendor/bin/pint app tests routes database bootstrap resources --format agent # c
 - [docs/architecture.md](docs/architecture.md) — tenancy, middleware, request flow, API, real-time
 - [docs/schema.md](docs/schema.md) — database tables and relationships
 - [docs/rbac.md](docs/rbac.md) — permission catalog and role matrix
-- [docs/roadmap.md](docs/roadmap.md) — Phases 1–4 (all complete)
+- [docs/roadmap.md](docs/roadmap.md) — Phases 1–6 (all complete)
+
+## Scheduled Commands
+
+```bash
+php artisan overtime:expire-pending        # daily 00:10 — settle pending overtime
+php artisan risk:evaluate [--date=]        # daily 00:20 — sweep late-risk / overwork rules
+php artisan status:generate [--month=]     # monthly 1st 00:30 — employee monthly status snapshots
+```
 
 ## Environment Notes
 

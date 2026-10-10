@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\AuditLog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
 use Livewire\Volt\Volt;
 use Tests\Concerns\CreatesOrganizations;
 use Tests\TestCase;
@@ -144,11 +146,37 @@ class ProfileTest extends TestCase
         $this->actingAs($user);
 
         Volt::test('profile.delete-user-form')
-            ->set('password', 'password')
+            ->set('password', 'wrong-password')
             ->call('deleteUser')
             ->assertHasErrors('password');
 
         $this->assertNotNull($user->fresh());
         $this->assertAuthenticated();
+    }
+
+    public function test_password_change_is_audited_without_leaking_the_value(): void
+    {
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
+        $user = $this->makeUser($org, 'company_admin', $roles);
+
+        $this->actingAs($user);
+
+        Volt::test('profile.update-password-form')
+            ->set('current_password', 'password')
+            ->set('password', 'a-brand-new-secret')
+            ->set('password_confirmation', 'a-brand-new-secret')
+            ->call('updatePassword')
+            ->assertHasNoErrors();
+
+        $log = AuditLog::withoutGlobalScopes()
+            ->where('action', 'password.changed')
+            ->firstOrFail();
+
+        $this->assertSame($org->id, $log->organization_id);
+        $this->assertSame($user->id, $log->actor_user_id);
+        $this->assertSame(['password' => '(redacted)'], $log->new_value);
+        $this->assertStringNotContainsString('a-brand-new-secret', $log->toJson());
+
+        $this->assertTrue(Hash::check('a-brand-new-secret', $user->refresh()->password));
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Organization;
+use App\Services\AuditLogger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -10,6 +11,8 @@ use Illuminate\View\View;
 
 class PlatformController extends Controller
 {
+    public function __construct(private readonly AuditLogger $audit) {}
+
     public function organizations(): View
     {
         Gate::authorize('platform.organizations');
@@ -25,8 +28,14 @@ class PlatformController extends Controller
     {
         Gate::authorize('platform.organizations');
 
+        $old = ['status' => $organization->status];
+
         $organization->update([
             'status' => $organization->status === 'active' ? 'suspended' : 'active',
+        ]);
+
+        $this->audit->log('organization.status_changed', $organization, $old, [
+            'status' => $organization->status,
         ]);
 
         return back()->with('status', 'Organization status updated.');

@@ -55,6 +55,45 @@
                 </div>
             </div>
 
+            {{-- §18 score, overtime & risk widgets (§15 admin visibility). --}}
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                <div class="rounded-lg bg-indigo-50 p-4">
+                    <div class="text-sm text-indigo-700">Average Score</div>
+                    <div class="text-3xl font-semibold text-indigo-800 mt-1">
+                        @if ($stats['avg_score'] !== null)
+                            {{ number_format($stats['avg_score'], 1) }}
+                        @else
+                            —
+                        @endif
+                    </div>
+                </div>
+                <div class="rounded-lg bg-red-50 p-4">
+                    <div class="text-sm text-red-700">At Risk Employees</div>
+                    <div class="text-3xl font-semibold text-red-800 mt-1">{{ $stats['at_risk'] }}</div>
+                </div>
+                <div class="rounded-lg bg-orange-50 p-4">
+                    <div class="text-sm text-orange-700">High-Risk Alerts</div>
+                    <div class="text-3xl font-semibold text-orange-800 mt-1">{{ $stats['high_risk_alerts'] }}</div>
+                    <div class="text-xs text-orange-600 mt-1">this week</div>
+                </div>
+                <div class="rounded-lg bg-purple-50 p-4">
+                    <div class="text-sm text-purple-700">Overtime Today</div>
+                    <div class="text-3xl font-semibold text-purple-800 mt-1">
+                        {{ number_format($stats['overtime_today'] / 60, 1) }}<span class="text-base font-normal">h</span>
+                    </div>
+                </div>
+                <div class="rounded-lg bg-amber-50 p-4">
+                    <div class="text-sm text-amber-700">Pending Overtime Approvals</div>
+                    <div class="text-3xl font-semibold text-amber-800 mt-1">{{ $stats['pending_overtime'] }}</div>
+                </div>
+                <div class="rounded-lg bg-teal-50 p-4">
+                    <div class="text-sm text-teal-700">Overtime Hours This Month</div>
+                    <div class="text-3xl font-semibold text-teal-800 mt-1">
+                        {{ number_format($stats['overtime_month'] / 60, 1) }}<span class="text-base font-normal">h</span>
+                    </div>
+                </div>
+            </div>
+
             <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
                 <div class="p-6">
                     <h3 class="font-semibold text-gray-800 mb-4">Recent activity</h3>
@@ -80,7 +119,7 @@
             </div>
 
             <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6 text-sm text-gray-600">
-                Salary, scoring and analytics dashboards arrive in Phases 3–6.
+                Analytics dashboards and exports arrive in Phase 6.
             </div>
         </div>
     </div>

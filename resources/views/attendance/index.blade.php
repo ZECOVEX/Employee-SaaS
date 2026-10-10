@@ -32,7 +32,7 @@
                     <x-input-label for="status" value="Status" />
                     <select id="status" name="status" class="mt-1 block border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm">
                         <option value="">All</option>
-                        @foreach (['PRESENT', 'LATE', 'ABSENT', 'LEAVE', 'HOLIDAY', 'WEEKEND'] as $s)
+                        @foreach (['PRESENT', 'HALF_DAY', 'LATE', 'REMOTE', 'ABSENT', 'LEAVE', 'HOLIDAY', 'WEEKEND'] as $s)
                             <option value="{{ $s }}" @selected(request('status') === $s)>{{ $s }}</option>
                         @endforeach
                     </select>

@@ -172,6 +172,43 @@ class AttendanceTest extends TestCase
         ]);
     }
 
+    public function test_manual_correction_notifies_the_corrected_employee(): void
+    {
+        $ctx = $this->makeOrganization('PunchCoN');
+        $admin = $this->makeUser($ctx['organization'], 'company_admin', $ctx['roles']);
+        $staff = $this->makeUser($ctx['organization'], 'employee', $ctx['roles']);
+        $employee = $this->makeEmployee($ctx['organization'], $staff, 'EMP-N1');
+
+        $this->actingAs($admin)
+            ->post(route('attendance.store'), [
+                'employee_id' => $employee->id,
+                'event_type' => AttendanceEvent::MANUAL_IN,
+                'occurred_at' => now()->format('Y-m-d H:i'),
+                'notes' => 'Front-desk fix',
+            ])
+            ->assertRedirect();
+
+        $titles = $staff->notifications()->get()
+            ->map(fn ($n) => $n->data['title'])
+            ->all();
+        $this->assertContains('Attendance corrected', $titles);
+
+        // Self-corrections stay silent (you corrected yourself).
+        $selfEmployee = $this->makeEmployee($ctx['organization'], $admin, 'EMP-N2');
+        $admin->notifications()->delete();
+
+        $this->actingAs($admin)
+            ->post(route('attendance.store'), [
+                'employee_id' => $selfEmployee->id,
+                'event_type' => AttendanceEvent::MANUAL_OUT,
+                'occurred_at' => now()->format('Y-m-d H:i'),
+                'notes' => 'Self fix',
+            ])
+            ->assertRedirect();
+
+        $this->assertSame(0, $admin->notifications()->count());
+    }
+
     public function test_attendance_index_is_tenant_isolated(): void
     {
         $ctxA = $this->makeOrganization('AttCoA');
