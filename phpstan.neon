@@ -1,0 +1,15 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+    - phpstan-baseline.neon
+
+parameters:
+    paths:
+        - app
+    level: 5
+    reportUnmatchedIgnoredErrors: false
+    ignoreErrors:
+        # Livewire/Volt components resolve properties dynamically.
+        - '#Access to an undefined property Livewire\\#'
+
+    excludePaths:
+        - bootstrap/cache/*

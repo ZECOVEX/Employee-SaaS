@@ -1,14 +1,15 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers;
 
+use App\Http\Requests\StoreTerminalRequest;
 use App\Models\AttendanceTerminal;
 use App\Services\AuditLogger;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 class TerminalController extends Controller
@@ -24,15 +25,9 @@ class TerminalController extends Controller
         return view('terminals.index', compact('terminals'));
     }
 
-    public function store(Request $request): RedirectResponse
+    public function store(StoreTerminalRequest $request): RedirectResponse
     {
-        Gate::authorize('attendance.terminal');
-
-        $data = $request->validate([
-            'name' => ['required', 'string', 'max:120', Rule::unique('attendance_terminals', 'name')
-                ->where('organization_id', $request->user()->organization_id)],
-            'location' => ['nullable', 'string', 'max:160'],
-        ]);
+        $data = $request->validated();
 
         $plainKey = 'term_'.Str::random(40);
 
@@ -40,11 +35,24 @@ class TerminalController extends Controller
             'organization_id' => $request->user()->organization_id,
             'name' => $data['name'],
             'location' => $data['location'] ?? null,
+            'latitude' => $data['latitude'] ?? null,
+            'longitude' => $data['longitude'] ?? null,
+            'radius_meters' => $data['radius_meters'] ?? 100,
+            'require_location' => (bool) ($data['require_location'] ?? false),
+            'allowed_ips' => array_values(array_filter(array_map('trim', $data['allowed_ips'] ?? []))),
             'key_hash' => hash('sha256', $plainKey),
             'status' => 'active',
         ]);
 
-        $this->audit->log('terminal.created', null, null, ['name' => $data['name'], 'location' => $data['location'] ?? null]);
+        $this->audit->log('terminal.created', null, null, [
+            'name' => $data['name'],
+            'location' => $data['location'] ?? null,
+            'latitude' => $data['latitude'] ?? null,
+            'longitude' => $data['longitude'] ?? null,
+            'radius_meters' => $data['radius_meters'] ?? 100,
+            'require_location' => (bool) ($data['require_location'] ?? false),
+            'allowed_ips' => $data['allowed_ips'] ?? [],
+        ]);
 
         return redirect()
             ->route('terminals.index')

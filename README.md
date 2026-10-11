@@ -1,4 +1,4 @@
-# Employee Management SaaS (Phases 1–9)
+# Employee Management SaaS (Phases 1–10)
 
 Multi-tenant employee management platform built with Laravel 13, Livewire 3, and Breeze (Volt). Each registered organization (tenant) gets isolated employees, departments, users, roles, and audit logs.
 
@@ -108,22 +108,34 @@ Open http://localhost:8000 — the entrypoint generates `APP_KEY`, caches config
 
 ### Phase 9 — Stripe billing
 - **Checkout**: "Pay with Stripe" on the Billing page for paid plans (`plans.stripe_price_id`), Stripe Checkout Session redirect; success/cancel banners on return
+- **Customer portal**: "Manage billing in Stripe" opens a Billing Portal session (payment methods, invoices, cancellation) whenever Stripe is configured and the org has a Stripe customer
 - **Webhooks**: `POST api/stripe/webhook` (signature-verified with `STRIPE_WEBHOOK_SECRET`, 300s tolerance) handles `checkout.session.completed` (activates plan + subscription), `customer.subscription.updated|deleted` (status sync), and `invoice.paid` (marks the open invoice paid)
 - Implemented over the raw Laravel HTTP client (not the stripe-php package) so `Http::fake` keeps tests hermetic; unconfigured Stripe hides the button and returns 503 on the webhook
 
-## Tests
+### Phase 10 — Spec leftovers, observability & dev hardening
+- **Observability (§44)**: `/health` (liveness) + `/ready` (DB + cache, 503 when down) probes; security headers (nosniff, frame deny, referrer policy, permissions policy, HSTS) and `X-Request-Id` correlation on every request
+- **Login geolocation (§71)**: every login attempt (web, API, SSO, MFA — success or failure) records the client IP with a server-side GeoIP lookup (country/division/city via the `null`/`static`/`maxmind` driver); profile "Security information" section + a dedicated login-history audit page; approximate, security-signal-only, disclosed on the public `/privacy` page
+- **Data privacy (§43)**: self-service account deletion prohibited for all roles; admin-controlled deactivation blocks every login path; JSON data export (self via Profile, admins via Users page); daily `privacy:prune` honors per-org retention windows (Settings → Data retention); public `/privacy` policy
+- **Race conditions (§50)**: plan headcount checks and plan switches lock the subscription row; overtime/comp-time inserts handle unique-violation retries
+- **Terminal geo-security (§32)**: terminals can pin a GPS location + verification radius and/or an IP allowlist (exact or CIDR); the punch API refuses off-allowlist IPs and out-of-radius/missing location fixes
+- **Dev requirements (§62)**: `declare(strict_types=1)` across the codebase, Larastan level 5 (clean with a baseline so new code stays clean), Form Requests on the main write endpoints, `docs/openapi.yaml` (OpenAPI 3.1), an end-to-end journey test, `composer format|analyse|check` scripts, and a CI Larastan step
+
+## Tests & checks
 
 ```bash
-php artisan test        # 350 tests
-vendor/bin/pint app tests routes database bootstrap resources --format agent # code style
+php artisan test        # 361 tests
+composer format         # Pint code style (app tests routes database bootstrap resources)
+composer analyse        # Larastan level 5 (phpstan.neon + baseline)
+composer check          # format + analyse + test
 ```
 
 ## Documentation
 
-- [docs/architecture.md](docs/architecture.md) — tenancy, middleware, request flow, API, real-time, MFA/SSO/webhooks/Stripe
+- [docs/architecture.md](docs/architecture.md) — tenancy, middleware, request flow, API, real-time, MFA/SSO/webhooks/Stripe, observability, privacy, geo
 - [docs/schema.md](docs/schema.md) — database tables and relationships
 - [docs/rbac.md](docs/rbac.md) — permission catalog and role matrix
-- [docs/roadmap.md](docs/roadmap.md) — Phases 1–9 (all complete)
+- [docs/roadmap.md](docs/roadmap.md) — Phases 1–10 (all complete)
+- [docs/openapi.yaml](docs/openapi.yaml) — OpenAPI 3.1 spec for /api/v1 + the NFC punch endpoint
 
 ## Scheduled Commands
 
@@ -131,6 +143,7 @@ vendor/bin/pint app tests routes database bootstrap resources --format agent # c
 php artisan overtime:expire-pending        # daily 00:10 — settle pending overtime
 php artisan risk:evaluate [--date=]        # daily 00:20 — sweep late-risk / overwork rules
 php artisan status:generate [--month=]     # monthly 1st 00:30 — employee monthly status snapshots
+php artisan privacy:prune                  # daily 03:00 — apply login/audit retention windows
 ```
 
 ## Environment Notes
@@ -139,3 +152,4 @@ php artisan status:generate [--month=]     # monthly 1st 00:30 — employee mont
 - `.env` is pre-configured by the setup script (`APP_KEY` generated)
 - Rebuild assets after view changes: `npm run build`
 - Stripe (Phase 9, optional): set `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` and a `stripe_price_id` on paid plans; without them the checkout button is hidden and the webhook returns 503
+- GeoIP (Phase 10, optional): `GEOIP_DRIVER` (`null`/`static`/`maxmind`) + `GEOIP_MAXMIND_DATABASE`; the `static` driver reads CIDR ranges from `config/geoip.php`

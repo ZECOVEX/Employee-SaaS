@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers;
 
 use App\Models\Invoice;
@@ -65,6 +67,21 @@ class BillingController extends Controller
         abort_if($plan->stripe_price_id === null, 404, 'This plan is not purchasable via Stripe.');
 
         return redirect()->away($this->stripe->checkoutUrl($organization, $plan));
+    }
+
+    /**
+     * Phase 9 — redirect to the Stripe Billing Portal (payment methods,
+     * invoice history, cancellation).
+     */
+    public function stripePortal(Request $request): RedirectResponse
+    {
+        Gate::authorize('settings.manage');
+
+        abort_unless($this->stripe->isConfigured(), 404, 'Stripe is not configured.');
+
+        $organization = $request->user()->organization;
+
+        return redirect()->away($this->stripe->customerPortalUrl($organization));
     }
 
     public function updatePlan(Request $request): RedirectResponse

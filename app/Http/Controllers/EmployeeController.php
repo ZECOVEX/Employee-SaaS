@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers;
 
 use App\Models\AuditLog;
@@ -12,6 +14,7 @@ use App\Models\Position;
 use App\Models\Role;
 use App\Models\SalaryRecord;
 use App\Models\User;
+use App\Models\UserLoginHistory;
 use App\Notifications\PasswordChangeRequired;
 use App\Services\AuditLogger;
 use App\Services\BillingService;
@@ -259,10 +262,18 @@ class EmployeeController extends Controller
                 ->get(),
         };
 
+        // §71 — login history on the Audit History tab (self or audit.view).
+        $loginHistory = ($tab === 'audit' && ($isSelf || $user->canPermission('audit.view')) && $employee->user_id !== null)
+            ? UserLoginHistory::where('user_id', $employee->user_id)
+                ->orderByDesc('id')
+                ->limit(10)
+                ->get()
+            : collect();
+
         return view('employees.show', compact(
             'employee', 'canSeeSalary', 'currentSalary',
             'score', 'scoreStatus', 'otSummary',
-            'tabs', 'tab', 'tabData', 'isSelf',
+            'tabs', 'tab', 'tabData', 'isSelf', 'loginHistory',
         ));
     }
 

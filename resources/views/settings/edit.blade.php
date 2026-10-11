@@ -135,6 +135,31 @@
                         </div>
                     </div>
 
+                    <div class="border-t border-gray-200 pt-4 mt-4">
+                        <h3 class="text-sm font-semibold text-gray-800 mb-3">Data retention (privacy)</h3>
+                        <p class="mb-3 text-xs text-gray-500">
+                            Windows used by the daily <code>privacy:prune</code> job. Enter 0 to use the
+                            platform defaults (audit 365 days, login history 180 days). See the
+                            <a href="{{ route('privacy') }}" class="text-indigo-600 hover:underline" target="_blank">privacy policy</a>.
+                        </p>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <x-input-label for="audit_retention_days" value="Audit log retention (days)" />
+                                <x-text-input id="audit_retention_days" name="audit_retention_days" type="number" min="0" max="3650"
+                                    class="mt-1 block w-full"
+                                    :value="old('audit_retention_days', $organization->settings['audit_retention_days'] ?? 0)" />
+                                <x-input-error :messages="$errors->get('audit_retention_days')" class="mt-2" />
+                            </div>
+                            <div>
+                                <x-input-label for="login_retention_days" value="Login history retention (days)" />
+                                <x-text-input id="login_retention_days" name="login_retention_days" type="number" min="0" max="3650"
+                                    class="mt-1 block w-full"
+                                    :value="old('login_retention_days', $organization->settings['login_retention_days'] ?? 0)" />
+                                <x-input-error :messages="$errors->get('login_retention_days')" class="mt-2" />
+                            </div>
+                        </div>
+                    </div>
+
                     <button type="submit" class="inline-flex items-center px-4 py-2 bg-gray-800 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-gray-700">
                         Save Settings
                     </button>

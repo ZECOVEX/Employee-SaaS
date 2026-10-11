@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Models;
 
 use Database\Factories\UserFactory;
@@ -22,6 +24,10 @@ use Laravel\Sanctum\HasApiTokens;
     'must_change_password',
     'is_platform_admin',
     'last_login_at',
+    'last_login_ip',
+    'last_login_geo_division',
+    'last_login_geo_area',
+    'deactivated_at',
 ])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
@@ -46,7 +52,19 @@ class User extends Authenticatable
             'mfa_secret' => 'encrypted',
             'mfa_enabled' => 'boolean',
             'mfa_recovery_codes' => 'array',
+            // §43 — admin-controlled deactivation blocks login until cleared.
+            'deactivated_at' => 'datetime',
         ];
+    }
+
+    public function loginHistory(): HasMany
+    {
+        return $this->hasMany(UserLoginHistory::class)->latest('id')->limit(20);
+    }
+
+    public function isDeactivated(): bool
+    {
+        return $this->deactivated_at !== null;
     }
 
     public function organization(): BelongsTo

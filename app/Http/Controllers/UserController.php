@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers;
 
 use App\Models\Role;
@@ -7,6 +9,8 @@ use App\Models\User;
 use App\Notifications\PasswordChangeRequired;
 use App\Services\AuditLogger;
 use App\Services\PasswordResetService;
+use App\Services\PrivacyService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -14,6 +18,7 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class UserController extends Controller
@@ -179,6 +184,64 @@ class UserController extends Controller
             ->route('users.index')
             ->with('status', "Password reset for {$user->name}.")
             ->with('temp_password', $password);
+    }
+
+    /**
+     * §43 — admin-controlled deactivation: blocks every login path until
+     * cleared. Self and the last remaining company_admin are protected.
+     */
+    public function deactivate(Request $request, User $user): RedirectResponse
+    {
+        Gate::authorize('users.manage');
+        $this->assertSameOrg($user);
+
+        if ($user->id === $request->user()->id) {
+            throw ValidationException::withMessages(['user' => 'You cannot deactivate your own account.']);
+        }
+
+        if ($user->hasRole('company_admin')) {
+            $adminCount = User::withoutGlobalScopes()
+                ->where('organization_id', $user->organization_id)
+                ->whereHas('roles', fn ($q) => $q->where('slug', 'company_admin'))
+                ->count();
+
+            if ($adminCount <= 1) {
+                throw ValidationException::withMessages(['user' => 'Cannot deactivate the last company admin.']);
+            }
+        }
+
+        $user->update(['deactivated_at' => now()]);
+        $this->audit->log('user.deactivated', $user, ['deactivated_at' => null], ['deactivated_at' => now()->toIso8601String()]);
+
+        return redirect()
+            ->route('users.index')
+            ->with('status', "Deactivated {$user->name}. They can no longer sign in.");
+    }
+
+    public function activate(Request $request, User $user): RedirectResponse
+    {
+        Gate::authorize('users.manage');
+        $this->assertSameOrg($user);
+
+        $user->update(['deactivated_at' => null]);
+        $this->audit->log('user.reactivated', $user, ['deactivated_at' => 'set'], ['deactivated_at' => null]);
+
+        return redirect()
+            ->route('users.index')
+            ->with('status', "Reactivated {$user->name}.");
+    }
+
+    /** §43 — data export: a JSON dump of the user's own account data. */
+    public function export(User $user): JsonResponse
+    {
+        Gate::authorize('users.manage');
+        $this->assertSameOrg($user);
+
+        return response()->json(
+            app(PrivacyService::class)->exportUserData($user)
+        )->withHeaders([
+            'Content-Disposition' => 'attachment; filename="user-'.$user->id.'-export.json"',
+        ]);
     }
 
     private function assertSameOrg(User $user): void

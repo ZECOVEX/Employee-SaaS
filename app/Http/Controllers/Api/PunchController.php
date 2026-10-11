@@ -1,11 +1,14 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AttendanceEvent;
 use App\Models\AttendanceTerminal;
 use App\Services\AttendanceService;
+use App\Services\Geo\GeoLocator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -19,6 +22,10 @@ class PunchController extends Controller
         $data = $request->validate([
             'card_token' => ['required', 'string', 'max:64'],
             'terminal_id' => ['sometimes', 'integer'],
+            // §32 — optional GPS fix supplied by the terminal app when the
+            // terminal has require_location enabled.
+            'latitude' => ['nullable', 'numeric', 'between:-90,90'],
+            'longitude' => ['nullable', 'numeric', 'between:-180,180'],
         ]);
 
         $key = $request->header('X-Terminal-Key') ?? $request->input('terminal_key');
@@ -38,6 +45,43 @@ class PunchController extends Controller
 
         if (isset($data['terminal_id']) && (int) $data['terminal_id'] !== $terminal->id) {
             return response()->json(['message' => 'Terminal does not match the authenticated terminal.'], 403);
+        }
+
+        // §32 — IP allowlist: when configured, punches are refused from any
+        // other address (exact match or IPv4 CIDR block).
+        $allowlist = $terminal->allowed_ips ?? [];
+
+        if ($allowlist !== [] && ! GeoLocator::matchesList((string) $request->ip(), $allowlist)) {
+            return response()->json(['message' => 'Punch refused: source IP is not on this terminal\'s allowlist.'], 403);
+        }
+
+        // §32 — location verification: when enabled, the terminal must send
+        // a GPS fix and it must fall inside the configured radius.
+        if ($terminal->require_location) {
+            if (! isset($data['latitude'], $data['longitude'])) {
+                return response()->json(['message' => 'Punch refused: this terminal requires a location fix.'], 422);
+            }
+
+            if ($terminal->latitude === null || $terminal->longitude === null) {
+                return response()->json(['message' => 'Punch refused: terminal has no reference location configured.'], 403);
+            }
+
+            $distance = $this->distanceMeters(
+                (float) $data['latitude'],
+                (float) $data['longitude'],
+                (float) $terminal->latitude,
+                (float) $terminal->longitude,
+            );
+
+            if ($distance > $terminal->radius_meters) {
+                return response()->json([
+                    'message' => sprintf(
+                        'Punch refused: location is %dm away — outside the %dm radius.',
+                        (int) round($distance),
+                        $terminal->radius_meters,
+                    ),
+                ], 403);
+            }
         }
 
         $limiterKey = 'punch:'.$terminal->id;
@@ -99,5 +143,19 @@ class PunchController extends Controller
             AttendanceEvent::BREAK_END => 'Break end',
             default => 'Punch',
         };
+    }
+
+    /** §32 — great-circle distance between two GPS fixes, in meters. */
+    private function distanceMeters(float $lat1, float $lon1, float $lat2, float $lon2): float
+    {
+        $earthRadius = 6371000.0;
+
+        $dLat = deg2rad($lat2 - $lat1);
+        $dLon = deg2rad($lon2 - $lon1);
+
+        $a = sin($dLat / 2) ** 2
+            + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLon / 2) ** 2;
+
+        return 2 * $earthRadius * asin(min(1.0, sqrt($a)));
     }
 }

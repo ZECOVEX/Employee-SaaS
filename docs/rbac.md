@@ -113,12 +113,21 @@ Security & enterprise features reuse the catalog (still 30 keys):
 ## Phase 9 — no new permission keys
 
 - **Stripe checkout** (`POST billing/stripe/checkout`) → `settings.manage` (same as plan switching); `POST api/stripe/webhook` is **unauthenticated** (Stripe calls it) and signature-verified via `STRIPE_WEBHOOK_SECRET`
+- **Stripe customer portal** (`POST billing/stripe/portal`) → `settings.manage`; button only rendered when Stripe is configured and the org has a `stripe_customer_id`
+
+## Phase 10 — no new permission keys
+
+- **User deactivation/reactivation** (`POST users/{user}/deactivate|activate`) → `users.manage`; self and the last remaining company_admin are blocked server-side via `ValidationException` (field error, not a 404/422 abort)
+- **Admin data export** (`GET users/{user}/export`) → `users.manage`; **self data export** (`GET profile/export`) needs no key — any authenticated user may download their own data (§43)
+- **Login history audit page** (`GET audit-logs/logins`) → `audit.view` (same gate as the audit index)
+- **Health probes** (`GET /health`, `GET /ready`) and the **privacy policy** (`GET /privacy`) are public, unauthenticated routes
+- Retention settings are part of the existing `settings.manage` Settings form
 
 ## Self-service exceptions (no extra permission needed)
 
 - **Own attendance** — any authenticated employee can view `GET attendance/employee/{theirOwnId}`; viewing anyone else's record requires `attendance.view` (403 otherwise). The sidebar shows a "My Attendance" entry when `attendance.view` is absent.
 - **Profile identity lock** — changing name/email on the profile page requires `employees.edit` (or platform admin); otherwise the fields render disabled with a "managed by HR" note.
-- **Account deletion** — only users whose sole role is `employee` can delete their own account (admins/HR/manager roles are guarded server-side with a validation error).
+- **Account deletion** — §43: self-service deletion is **prohibited for every role**; the profile section shows the admin-contact note + the self data-export link. Removal is an admin workflow (`users.manage` → Deactivate or Delete on the Users page).
 - **NFC card history** — `GET nfc-cards/{card}/history` requires `nfc.view`; card replacement (`POST nfc-cards/{card}/replace`) requires `nfc.manage`.
 
 ## Dashboard routing

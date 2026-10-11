@@ -17,6 +17,21 @@
                 <div class="rounded-md bg-amber-50 p-4 text-sm text-amber-800">Checkout canceled — you have not been charged.</div>
             @endif
 
+            @if ($stripeEnabled && $subscription?->stripe_customer_id)
+                <div class="flex flex-wrap items-center justify-between gap-3 rounded-md bg-gray-50 p-4">
+                    <p class="text-sm text-gray-600">
+                        Manage payment methods, invoices and cancellation in the Stripe customer portal.
+                    </p>
+                    <form action="{{ route('billing.stripe_portal') }}" method="POST">
+                        @csrf
+                        <button type="submit"
+                                class="inline-flex items-center px-4 py-2 bg-indigo-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-indigo-500">
+                            Manage billing in Stripe
+                        </button>
+                    </form>
+                </div>
+            @endif
+
             {{-- Current plan + headcount usage --}}
             <div class="bg-white shadow-sm sm:rounded-lg p-6">
                 <div class="flex flex-wrap items-start justify-between gap-6">

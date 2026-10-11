@@ -1,11 +1,15 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers;
 
 use App\Models\Organization;
 use App\Models\Role;
 use App\Models\User;
+use App\Models\UserLoginHistory;
 use App\Services\AuditLogger;
+use App\Services\Geo\LoginHistoryService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -144,8 +148,14 @@ class SsoLoginController extends Controller
 
         $this->audit->log('sso.login', $user, null, ['email' => $email]);
 
+        // §43 — admin-controlled deactivation blocks SSO logins too.
+        if ($user->isDeactivated()) {
+            return redirect()->route('login')->withErrors(['email' => 'This account has been deactivated. Contact your administrator.']);
+        }
+
         Auth::login($user);
         $request->session()->regenerate();
+        app(LoginHistoryService::class)->recordFromRequest($user, UserLoginHistory::STATUS_SUCCESS);
 
         return redirect()->intended(route('dashboard', absolute: false));
     }

@@ -18,22 +18,56 @@
 
             <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
                 <h3 class="font-medium text-gray-700 mb-3">Register terminal</h3>
-                <form action="{{ route('terminals.store') }}" method="POST" class="flex flex-wrap gap-3 items-end">
+                <form action="{{ route('terminals.store') }}" method="POST" class="space-y-4">
                     @csrf
-                    <div>
-                        <x-input-label for="name" value="Terminal ID / name" />
-                        <x-text-input id="name" name="name" type="text" class="mt-1 block" :value="old('name')" placeholder="TERM-DHK-001" required />
+                    <div class="flex flex-wrap gap-3 items-end">
+                        <div>
+                            <x-input-label for="name" value="Terminal ID / name" />
+                            <x-text-input id="name" name="name" type="text" class="mt-1 block" :value="old('name')" placeholder="TERM-DHK-001" required />
+                        </div>
+                        <div>
+                            <x-input-label for="location" value="Location" />
+                            <x-text-input id="location" name="location" type="text" class="mt-1 block" :value="old('location')" placeholder="Dhaka Office" />
+                        </div>
+                        <button type="submit" class="px-4 py-2 bg-gray-800 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-gray-700">
+                            Create
+                        </button>
                     </div>
-                    <div>
-                        <x-input-label for="location" value="Location" />
-                        <x-text-input id="location" name="location" type="text" class="mt-1 block" :value="old('location')" placeholder="Dhaka Office" />
+
+                    <div class="border-t border-gray-100 pt-3">
+                        <p class="text-xs font-semibold text-gray-600 mb-2">Geo-security (optional, §32)</p>
+                        <div class="flex flex-wrap gap-3 items-end">
+                            <div>
+                                <x-input-label for="latitude" value="Latitude" />
+                                <x-text-input id="latitude" name="latitude" type="text" class="mt-1 block w-32" :value="old('latitude')" placeholder="23.8103" />
+                            </div>
+                            <div>
+                                <x-input-label for="longitude" value="Longitude" />
+                                <x-text-input id="longitude" name="longitude" type="text" class="mt-1 block w-32" :value="old('longitude')" placeholder="90.4125" />
+                            </div>
+                            <div>
+                                <x-input-label for="radius_meters" value="Radius (m)" />
+                                <x-text-input id="radius_meters" name="radius_meters" type="number" min="10" max="10000" class="mt-1 block w-28" :value="old('radius_meters', 100)" />
+                            </div>
+                            <label class="inline-flex items-center gap-2 text-sm text-gray-700 pb-2">
+                                <input type="hidden" name="require_location" value="0">
+                                <input type="checkbox" name="require_location" value="1" @checked(old('require_location')) />
+                                Require location fix
+                            </label>
+                        </div>
+                        <div class="mt-3">
+                            <x-input-label for="allowed_ips" value="IP allowlist (one per line — exact IP or CIDR)" />
+                            <textarea id="allowed_ips" name="allowed_ips[]" rows="2"
+                                      class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm text-sm"
+                                      placeholder="203.0.113.7&#10;10.0.0.0/8">{{ old('allowed_ips') ? implode("\n", (array) old('allowed_ips')) : '' }}</textarea>
+                            <p class="mt-1 text-xs text-gray-500">Leave empty to accept punches from any source IP.</p>
+                        </div>
                     </div>
-                    <button type="submit" class="px-4 py-2 bg-gray-800 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-gray-700">
-                        Create
-                    </button>
                 </form>
                 <p class="mt-3 text-xs text-gray-500">
-                    Punch via <code>POST /api/attendance/nfc/punch</code> with header <code>X-Terminal-Key</code> and body <code>{"card_token":"..."}</code>.
+                    Punch via <code>POST /api/attendance/nfc/punch</code> with header <code>X-Terminal-Key</code>
+                    and body <code>{"card_token":"..."}</code> — add <code>latitude</code>/<code>longitude</code>
+                    when location verification is enabled.
                 </p>
             </div>
 

@@ -5,6 +5,13 @@
 
     <div class="py-12">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
+            <div class="mb-4 flex gap-2">
+                <a href="{{ route('audit-logs.index') }}"
+                   class="rounded-full px-3 py-1 text-sm {{ request()->routeIs('audit-logs.index') ? 'bg-indigo-600 text-white font-semibold' : 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">Action log</a>
+                <a href="{{ route('audit-logs.logins') }}"
+                   class="rounded-full px-3 py-1 text-sm {{ request()->routeIs('audit-logs.logins') ? 'bg-indigo-600 text-white font-semibold' : 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">Login history</a>
+            </div>
+
             <form method="GET" class="mb-4 flex flex-wrap gap-3 items-end">
                 <div>
                     <label for="f-action" class="block text-xs text-gray-500 mb-1">Action</label>

@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Services\Billing;
 
 use App\Models\Invoice;
@@ -51,6 +53,22 @@ class StripeService
             'metadata[plan_id]' => (string) $plan->id,
             'subscription_data[metadata][organization_id]' => (string) $organization->id,
             'subscription_data[metadata][plan_id]' => (string) $plan->id,
+        ]);
+
+        return $session['url'];
+    }
+
+    /**
+     * Create a Stripe Billing Portal session so admins can manage payment
+     * methods, view invoices and cancel the subscription on Stripe's side.
+     */
+    public function customerPortalUrl(Organization $organization): string
+    {
+        $customerId = $this->ensureCustomer($organization);
+
+        $session = $this->request('POST', '/billing_portal/sessions', [
+            'customer' => $customerId,
+            'return_url' => route('billing.index'),
         ]);
 
         return $session['url'];

@@ -1,10 +1,14 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
 use App\Models\User;
+use App\Models\UserLoginHistory;
+use App\Services\Geo\LoginHistoryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -27,6 +31,11 @@ class AuthController extends Controller
         $user = User::where('email', $data['email'])->first();
 
         if (! $user || ! Hash::check($data['password'], $user->password)) {
+            app(LoginHistoryService::class)->recordFromRequest(
+                $user,
+                UserLoginHistory::STATUS_FAILED,
+            );
+
             return response()->json(['message' => 'Invalid credentials.'], 401);
         }
 
@@ -40,7 +49,14 @@ class AuthController extends Controller
             return response()->json(['message' => 'This organization is suspended.'], 403);
         }
 
+        // §43 — admin-controlled deactivation blocks API logins too.
+        if ($user->isDeactivated()) {
+            return response()->json(['message' => 'This account has been deactivated.'], 403);
+        }
+
         $token = $user->createToken($data['device_name'], ['*'], now()->addDays(30));
+
+        app(LoginHistoryService::class)->recordFromRequest($user, UserLoginHistory::STATUS_SUCCESS);
 
         return response()->json([
             'data' => [

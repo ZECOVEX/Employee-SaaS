@@ -293,4 +293,151 @@ class NfcTerminalTest extends TestCase
             ->get(route('nfc-cards.history', $card))
             ->assertForbidden();
     }
+
+    // ── §32 — terminal geo-security ────────────────────────────────────
+
+    public function test_ip_allowlist_refuses_punches_from_other_addresses(): void
+    {
+        $ctx = $this->makeOrganization('TermGeo1');
+        $user = $this->makeUser($ctx['organization'], 'employee', $ctx['roles']);
+        $employee = $this->makeEmployee($ctx['organization'], $user, 'EMP-G1');
+
+        $terminal = AttendanceTerminal::create([
+            'organization_id' => $ctx['organization']->id,
+            'name' => 'TERM-GEO-IP',
+            'status' => 'active',
+            'key_hash' => hash('sha256', 'key-geo-ip'),
+            'allowed_ips' => ['203.0.113.7', '10.0.0.0/8'],
+        ]);
+
+        NfcCard::create([
+            'organization_id' => $ctx['organization']->id,
+            'card_token' => 'tok-geo-ip',
+            'status' => 'active',
+            'employee_id' => $employee->id,
+        ]);
+
+        // Default test IP (127.0.0.1) is not on the allowlist → refused.
+        $this->withHeaders(['X-Terminal-Key' => 'key-geo-ip'])
+            ->postJson('/api/attendance/nfc/punch', ['card_token' => 'tok-geo-ip'])
+            ->assertForbidden()
+            ->assertJsonPath('message', 'Punch refused: source IP is not on this terminal\'s allowlist.');
+
+        // Exact match on the allowlist → accepted.
+        $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.7'])
+            ->withHeaders(['X-Terminal-Key' => 'key-geo-ip'])
+            ->postJson('/api/attendance/nfc/punch', ['card_token' => 'tok-geo-ip'])
+            ->assertOk()
+            ->assertJsonPath('action', 'check_in');
+
+        $this->assertNotNull($terminal->fresh());
+    }
+
+    public function test_cidr_allowlist_entry_covers_matching_ips(): void
+    {
+        $ctx = $this->makeOrganization('TermGeo2');
+        $user = $this->makeUser($ctx['organization'], 'employee', $ctx['roles']);
+        $employee = $this->makeEmployee($ctx['organization'], $user, 'EMP-G2');
+
+        AttendanceTerminal::create([
+            'organization_id' => $ctx['organization']->id,
+            'name' => 'TERM-GEO-CIDR',
+            'status' => 'active',
+            'key_hash' => hash('sha256', 'key-geo-cidr'),
+            'allowed_ips' => ['10.0.0.0/8'],
+        ]);
+
+        NfcCard::create([
+            'organization_id' => $ctx['organization']->id,
+            'card_token' => 'tok-geo-cidr',
+            'status' => 'active',
+            'employee_id' => $employee->id,
+        ]);
+
+        $this->withServerVariables(['REMOTE_ADDR' => '10.1.2.3'])
+            ->withHeaders(['X-Terminal-Key' => 'key-geo-cidr'])
+            ->postJson('/api/attendance/nfc/punch', ['card_token' => 'tok-geo-cidr'])
+            ->assertOk()
+            ->assertJsonPath('action', 'check_in');
+    }
+
+    public function test_location_verification_requires_a_fix_within_the_radius(): void
+    {
+        $ctx = $this->makeOrganization('TermGeo3');
+        $user = $this->makeUser($ctx['organization'], 'employee', $ctx['roles']);
+        $employee = $this->makeEmployee($ctx['organization'], $user, 'EMP-G3');
+
+        AttendanceTerminal::create([
+            'organization_id' => $ctx['organization']->id,
+            'name' => 'TERM-GEO-GPS',
+            'status' => 'active',
+            'key_hash' => hash('sha256', 'key-geo-gps'),
+            'latitude' => 23.8103,
+            'longitude' => 90.4125,
+            'radius_meters' => 100,
+            'require_location' => true,
+        ]);
+
+        NfcCard::create([
+            'organization_id' => $ctx['organization']->id,
+            'card_token' => 'tok-geo-gps',
+            'status' => 'active',
+            'employee_id' => $employee->id,
+        ]);
+
+        // Missing fix → 422.
+        $this->withHeaders(['X-Terminal-Key' => 'key-geo-gps'])
+            ->postJson('/api/attendance/nfc/punch', ['card_token' => 'tok-geo-gps'])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Punch refused: this terminal requires a location fix.');
+
+        // ~1 km away (outside 100 m radius) → 403.
+        $this->withHeaders(['X-Terminal-Key' => 'key-geo-gps'])
+            ->postJson('/api/attendance/nfc/punch', [
+                'card_token' => 'tok-geo-gps',
+                'latitude' => 23.8193,
+                'longitude' => 90.4125,
+            ])
+            ->assertForbidden()
+            ->assertJsonPath('message', 'Punch refused: location is 1001m away — outside the 100m radius.');
+
+        // Inside the radius → accepted.
+        $this->withHeaders(['X-Terminal-Key' => 'key-geo-gps'])
+            ->postJson('/api/attendance/nfc/punch', [
+                'card_token' => 'tok-geo-gps',
+                'latitude' => 23.8104,
+                'longitude' => 90.4125,
+            ])
+            ->assertOk()
+            ->assertJsonPath('action', 'check_in');
+    }
+
+    public function test_admin_can_register_a_terminal_with_geo_security(): void
+    {
+        $ctx = $this->makeOrganization('TermGeo4');
+        $admin = $this->makeUser($ctx['organization'], 'company_admin', $ctx['roles']);
+
+        $this->actingAs($admin)
+            ->post(route('terminals.store'), [
+                'name' => 'TERM-GEO-CREATE',
+                'location' => 'Head Office',
+                'latitude' => 23.8103,
+                'longitude' => 90.4125,
+                'radius_meters' => 250,
+                'require_location' => '1',
+                'allowed_ips' => [" 203.0.113.9 \n"],
+            ])
+            ->assertRedirect(route('terminals.index'));
+
+        $terminal = AttendanceTerminal::withoutGlobalScopes()
+            ->where('organization_id', $ctx['organization']->id)
+            ->where('name', 'TERM-GEO-CREATE')
+            ->firstOrFail();
+
+        $this->assertSame(23.8103, round($terminal->latitude, 4));
+        $this->assertSame(90.4125, round($terminal->longitude, 4));
+        $this->assertSame(250, $terminal->radius_meters);
+        $this->assertTrue($terminal->require_location);
+        $this->assertSame(['203.0.113.9'], $terminal->allowed_ips);
+    }
 }

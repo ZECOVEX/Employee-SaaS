@@ -11,23 +11,16 @@ new class extends Component
 
     /**
      * Delete the currently authenticated user.
+     *
+     * §43 — self-service account deletion is prohibited for every role.
+     * Removal is an admin-controlled workflow (Users page → Delete, or an
+     * approved support ticket); deactivation is the reversible first step.
      */
     public function deleteUser(Logout $logout): void
     {
-        // Employees are prohibited from deleting their own accounts (§3).
-        if (Auth::user()->isEmployeeOnly()) {
-            throw ValidationException::withMessages([
-                'password' => 'Employee accounts cannot be deleted here. Contact an administrator.',
-            ]);
-        }
-
-        $this->validate([
-            'password' => ['required', 'string', 'current_password'],
+        throw ValidationException::withMessages([
+            'password' => 'Self-service account deletion is disabled. Contact an administrator to deactivate or remove your account.',
         ]);
-
-        tap(Auth::user(), $logout(...))->delete();
-
-        $this->redirect('/', navigate: true);
     }
 }; ?>
 
@@ -38,50 +31,14 @@ new class extends Component
         </h2>
 
         <p class="mt-1 text-sm text-gray-600">
-            {{ __('Once your account is deleted, all of its resources and data will be permanently deleted. Before deleting your account, please download any data or information that you wish to retain.') }}
+            {{ __('Account removal is administrator-controlled. Ask a company admin to deactivate or delete your account from the Users page. You can download your data below first.') }}
         </p>
     </header>
 
-    <x-danger-button
-        x-data=""
-        x-on:click.prevent="$dispatch('open-modal', 'confirm-user-deletion')"
-    >{{ __('Delete Account') }}</x-danger-button>
-
-    <x-modal name="confirm-user-deletion" :show="$errors->isNotEmpty()" focusable>
-        <form wire:submit="deleteUser" class="p-6">
-
-            <h2 class="text-lg font-medium text-gray-900">
-                {{ __('Are you sure you want to delete your account?') }}
-            </h2>
-
-            <p class="mt-1 text-sm text-gray-600">
-                {{ __('Once your account is deleted, all of its resources and data will be permanently deleted. Please enter your password to confirm you would like to permanently delete your account.') }}
-            </p>
-
-            <div class="mt-6">
-                <x-input-label for="password" value="{{ __('Password') }}" class="sr-only" />
-
-                <x-text-input
-                    wire:model="password"
-                    id="password"
-                    name="password"
-                    type="password"
-                    class="mt-1 block w-3/4"
-                    placeholder="{{ __('Password') }}"
-                />
-
-                <x-input-error :messages="$errors->get('password')" class="mt-2" />
-            </div>
-
-            <div class="mt-6 flex justify-end">
-                <x-secondary-button x-on:click="$dispatch('close')">
-                    {{ __('Cancel') }}
-                </x-secondary-button>
-
-                <x-danger-button class="ms-3">
-                    {{ __('Delete Account') }}
-                </x-danger-button>
-            </div>
-        </form>
-    </x-modal>
+    <div class="flex items-center gap-3">
+        <a href="{{ route('profile.export') }}"
+           class="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50">
+            {{ __('Download my data (JSON)') }}
+        </a>
+    </div>
 </section>

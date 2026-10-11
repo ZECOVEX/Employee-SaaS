@@ -238,4 +238,60 @@ class StripeTest extends TestCase
 
         $this->assertFalse($service->verifyWebhookSignature($bad));
     }
+
+    public function test_billing_portal_redirects_to_a_stripe_session(): void
+    {
+        $this->configureStripe();
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
+        $admin = $this->makeUser($org, 'company_admin', $roles);
+        $this->seedPlans();
+
+        Subscription::create([
+            'organization_id' => $org->id,
+            'plan_id' => Plan::where('slug', 'business')->firstOrFail()->id,
+            'status' => 'active',
+            'stripe_customer_id' => 'cus_existing',
+            'current_period_start' => now()->toDateString(),
+            'current_period_end' => now()->addMonth()->toDateString(),
+        ]);
+
+        Http::fake([
+            'api.stripe.com/v1/billing_portal/sessions' => Http::response([
+                'url' => 'https://billing.stripe.com/session/test_123',
+            ], 200),
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('billing.stripe_portal'))
+            ->assertRedirect('https://billing.stripe.com/session/test_123');
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/billing_portal/sessions')
+            && $request['customer'] === 'cus_existing');
+    }
+
+    public function test_billing_portal_creates_a_customer_when_none_exists(): void
+    {
+        $this->configureStripe();
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
+        $admin = $this->makeUser($org, 'company_admin', $roles);
+
+        Http::fakeSequence('api.stripe.com/*')
+            ->push(['id' => 'cus_fresh'], 200)
+            ->push(['url' => 'https://billing.stripe.com/session/test_456'], 200);
+
+        $this->actingAs($admin)
+            ->post(route('billing.stripe_portal'))
+            ->assertRedirect('https://billing.stripe.com/session/test_456');
+    }
+
+    public function test_billing_portal_is_404_when_stripe_is_not_configured(): void
+    {
+        config(['services.stripe.secret' => null]);
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
+        $admin = $this->makeUser($org, 'company_admin', $roles);
+
+        $this->actingAs($admin)
+            ->post(route('billing.stripe_portal'))
+            ->assertNotFound();
+    }
 }

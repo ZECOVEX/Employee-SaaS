@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\ApiKeyController;
 use App\Http\Controllers\AttendanceController;
@@ -18,6 +20,7 @@ use App\Http\Controllers\OvertimePolicyController;
 use App\Http\Controllers\PayslipController;
 use App\Http\Controllers\PlatformController;
 use App\Http\Controllers\PositionController;
+use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\RolePermissionController;
 use App\Http\Controllers\SalaryController;
@@ -89,6 +92,14 @@ Route::middleware(['auth', 'verified', 'organization', 'company'])
         Route::post('users/{user}/reset-password', [UserController::class, 'resetPassword'])
             ->name('users.reset_password');
 
+        // §43 — admin-controlled deactivation/reactivation + data export.
+        Route::post('users/{user}/deactivate', [UserController::class, 'deactivate'])
+            ->name('users.deactivate');
+        Route::post('users/{user}/activate', [UserController::class, 'activate'])
+            ->name('users.activate');
+        Route::get('users/{user}/export', [UserController::class, 'export'])
+            ->name('users.export');
+
         // Password-recovery support tickets — filed by guests from the
         // forgot-password page; Gate::support.view = admins + managers +
         // department managers.
@@ -110,6 +121,10 @@ Route::middleware(['auth', 'verified', 'organization', 'company'])
         Route::get('audit-logs', [AuditLogController::class, 'index'])
             ->middleware('permission:audit.view')
             ->name('audit-logs.index');
+        // §71 — login history (GeoIP-resolved attempts), filterable.
+        Route::get('audit-logs/logins', [AuditLogController::class, 'logins'])
+            ->middleware('permission:audit.view')
+            ->name('audit-logs.logins');
         // Phase 8 — advanced audit: CSV export honouring the same filters.
         Route::get('audit-logs/export', [AuditLogController::class, 'export'])
             ->middleware('permission:audit.view')
@@ -210,6 +225,10 @@ Route::middleware(['auth', 'verified', 'organization', 'company'])
         Route::post('billing/stripe/checkout', [BillingController::class, 'stripeCheckout'])
             ->middleware('permission:settings.manage')
             ->name('billing.stripe_checkout');
+        // Phase 9 — Stripe Billing Portal (payment methods, invoices, cancel).
+        Route::post('billing/stripe/portal', [BillingController::class, 'stripePortal'])
+            ->middleware('permission:settings.manage')
+            ->name('billing.stripe_portal');
 
         Route::get('attendance', [AttendanceController::class, 'index'])
             ->middleware('permission:attendance.view')
@@ -363,7 +382,14 @@ Route::middleware(['auth', 'verified', 'organization', 'company'])
             ->name('terminals.destroy');
 
         Route::get('profile', fn () => view('profile'))->name('profile');
+        // §43 — self-service data export (JSON download of own account data).
+        Route::get('profile/export', [ProfileController::class, 'export'])
+            ->name('profile.export');
     });
+
+// §43 — privacy policy (public, no auth): discloses IP-derived location
+// collection, retention windows and the data-export/deletion workflow.
+Route::view('privacy', 'privacy')->name('privacy');
 
 // Platform (super admin) area
 Route::prefix('platform')

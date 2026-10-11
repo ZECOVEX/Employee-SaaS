@@ -32,6 +32,9 @@ jobs:
       - name: Code style (Pint)
         run: vendor/bin/pint --test app tests routes database bootstrap resources config
 
+      - name: Static analysis (Larastan)
+        run: php vendor/bin/phpstan analyse --memory-limit=1G
+
       - name: Tests (PHPUnit + SQLite in-memory)
         run: php vendor/bin/phpunit
 

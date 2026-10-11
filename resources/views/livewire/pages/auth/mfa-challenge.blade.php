@@ -1,6 +1,8 @@
 <?php
 
 use App\Models\User;
+use App\Models\UserLoginHistory;
+use App\Services\Geo\LoginHistoryService;
 use App\Services\Mfa\MfaService;
 use App\Services\Mfa\TotpService;
 use Illuminate\Support\Facades\RateLimiter;
@@ -36,6 +38,14 @@ new #[Layout('layouts.guest')] class extends Component
             return;
         }
 
+        // §43 — a deactivated account cannot complete the MFA challenge.
+        if ($user->isDeactivated()) {
+            $mfa->clearChallenge();
+            $this->redirectRoute('login', navigate: true);
+
+            return;
+        }
+
         $key = 'mfa:'.Str::lower($user->email).'|'.request()->ip();
 
         if (RateLimiter::tooManyAttempts($key, 5)) {
@@ -54,6 +64,7 @@ new #[Layout('layouts.guest')] class extends Component
 
         if (! $valid) {
             RateLimiter::hit($key, 300);
+            app(LoginHistoryService::class)->recordFromRequest($user, UserLoginHistory::STATUS_MFA_FAILED);
 
             throw ValidationException::withMessages([
                 'code' => 'The provided code is invalid.',
@@ -67,6 +78,7 @@ new #[Layout('layouts.guest')] class extends Component
 
         auth()->login($user, $remember);
         Session::regenerate();
+        app(LoginHistoryService::class)->recordFromRequest($user, UserLoginHistory::STATUS_SUCCESS);
 
         $this->redirectIntended(default: route('dashboard', absolute: false), navigate: true);
     }

@@ -1,0 +1,679 @@
+openapi: 3.1.0
+info:
+  title: Employee Management SaaS API
+  version: 1.0.0
+  description: |
+    REST API for the Employee Management SaaS (spec sections §29/§55).
+
+    **Authentication** — `POST /api/v1/auth/login` returns a Sanctum bearer
+    token valid for 30 days. Send it as `Authorization: Bearer {token}`.
+    API keys (`X-API-Key` header, `auth:apikey` guard) are accepted on the
+    same routes for machine clients.
+
+    **Tenant scoping** — every response is scoped to the organization of the
+    authenticated user. Cross-tenant access returns 404. A suspended
+    organization receives 403 on every authenticated route.
+
+    **Permissions** — routes are additionally gated by RBAC permissions
+    (`employees.view`, `attendance.view`, `leave.view`, `salary.view`,
+    `audit.view`, ...). Missing permission returns 403.
+  license:
+    name: Proprietary
+servers:
+  - url: /api/v1
+    description: Versioned API (relative to the application root)
+tags:
+  - name: auth
+  - name: employees
+  - name: departments
+  - name: attendance
+  - name: leave
+  - name: salary
+  - name: notifications
+  - name: audit
+  - name: nfc
+paths:
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Authenticate and obtain a bearer token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          description: Token issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    description: Sanctum personal access token (30-day expiry)
+                  user:
+                    $ref: '#/components/schemas/User'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          description: Too many login attempts
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Revoke the current token
+      responses:
+        '204':
+          description: Token revoked
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: Current user profile
+      responses:
+        '200':
+          description: Profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+  /employees:
+    get:
+      tags: [employees]
+      summary: List employees (requires `employees.view`)
+      parameters:
+        - $ref: '#/components/parameters/q'
+        - $ref: '#/components/parameters/page'
+      responses:
+        '200':
+          description: Paginated employees
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Paginated'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Employee'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /employees/{id}:
+    parameters:
+      - $ref: '#/components/parameters/id'
+    get:
+      tags: [employees]
+      summary: Show one employee (requires `employees.view`)
+      responses:
+        '200':
+          description: Employee
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Employee'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /departments:
+    get:
+      tags: [departments]
+      summary: List departments (requires `departments.view`)
+      parameters:
+        - $ref: '#/components/parameters/q'
+      responses:
+        '200':
+          description: Departments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Department'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /attendance:
+    get:
+      tags: [attendance]
+      summary: Daily attendance records (requires `attendance.view`)
+      parameters:
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+        - $ref: '#/components/parameters/page'
+      responses:
+        '200':
+          description: Paginated daily attendance
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Paginated'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/DailyAttendance'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /attendance/events:
+    get:
+      tags: [attendance]
+      summary: Raw attendance events (requires `attendance.view`)
+      parameters:
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: employee_id
+          in: query
+          schema:
+            type: integer
+        - $ref: '#/components/parameters/page'
+      responses:
+        '200':
+          description: Paginated attendance events
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Paginated'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AttendanceEvent'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /attendance/mine:
+    get:
+      tags: [attendance]
+      summary: The authenticated user's own attendance
+      responses:
+        '200':
+          description: Own attendance
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DailyAttendance'
+  /attendance/nfc/punch:
+    post:
+      tags: [nfc]
+      summary: NFC punch from a registered terminal
+      description: |
+        Authenticates with the `X-Terminal-Key` header (or `terminal_key`
+        body field). Toggles the employee's state (check-in ⇄ check-out).
+        §32 — when the terminal has an IP allowlist or location verification
+        enabled, the source IP must match and (if required) a `latitude` /
+        `longitude` fix inside the configured radius must be supplied.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [card_token]
+              properties:
+                card_token:
+                  type: string
+                terminal_id:
+                  type: integer
+                latitude:
+                  type: number
+                  format: float
+                longitude:
+                  type: number
+                  format: float
+      responses:
+        '200':
+          description: Punch recorded (or debounced duplicate)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PunchResult'
+        '401':
+          description: Missing or invalid terminal key
+        '403':
+          description: IP allowlist or location verification refused the punch
+        '422':
+          description: Unknown/inactive card, inactive employee, or missing location fix
+        '429':
+          description: Rate limited
+  /leave/mine:
+    get:
+      tags: [leave]
+      summary: The authenticated user's own leave requests
+      responses:
+        '200':
+          description: Own leave requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LeaveRequest'
+  /leave:
+    get:
+      tags: [leave]
+      summary: List leave requests (requires `leave.view`)
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, APPROVED, REJECTED, CANCELLED]
+        - $ref: '#/components/parameters/page'
+      responses:
+        '200':
+          description: Paginated leave requests
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Paginated'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/LeaveRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [leave]
+      summary: Request leave for the authenticated employee
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [leave_type_id, start_date, end_date]
+              properties:
+                leave_type_id:
+                  type: integer
+                start_date:
+                  type: string
+                  format: date
+                end_date:
+                  type: string
+                  format: date
+                reason:
+                  type: string
+                  maxLength: 1000
+      responses:
+        '201':
+          description: Leave request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveRequest'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+  /salary/mine:
+    get:
+      tags: [salary]
+      summary: The authenticated user's own salary records
+      responses:
+        '200':
+          description: Own salary records (requires `salary.view_own`)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SalaryRecord'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /notifications:
+    get:
+      tags: [notifications]
+      summary: List the current user's notifications
+      parameters:
+        - name: unread_only
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Notifications
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Notification'
+  /notifications/read-all:
+    post:
+      tags: [notifications]
+      summary: Mark every notification as read
+      responses:
+        '200':
+          description: All marked read
+  /notifications/{id}/read:
+    parameters:
+      - $ref: '#/components/parameters/id'
+    post:
+      tags: [notifications]
+      summary: Mark one notification as read
+      responses:
+        '200':
+          description: Marked read
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /audit-logs:
+    get:
+      tags: [audit]
+      summary: List audit logs (requires `audit.view`)
+      parameters:
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: actor_user_id
+          in: query
+          schema:
+            type: integer
+        - $ref: '#/components/parameters/page'
+      responses:
+        '200':
+          description: Paginated audit logs
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Paginated'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AuditLog'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Sanctum
+      description: Token from `POST /auth/login` (30-day expiry)
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Organization API key for machine clients
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    q:
+      name: q
+      in: query
+      schema:
+        type: string
+    page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+  responses:
+    Forbidden:
+      description: Missing permission or suspended organization
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Not found (also returned for cross-tenant ids)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ValidationFailed:
+      description: Validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+  schemas:
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+    ValidationError:
+      type: object
+      properties:
+        message:
+          type: string
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+    Paginated:
+      type: object
+      properties:
+        current_page:
+          type: integer
+        last_page:
+          type: integer
+        per_page:
+          type: integer
+        total:
+          type: integer
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        organization_id:
+          type: integer
+        mfa_enabled:
+          type: boolean
+        last_login_at:
+          type: [string, 'null']
+          format: date-time
+    Employee:
+      type: object
+      properties:
+        id:
+          type: integer
+        employee_code:
+          type: string
+        user:
+          $ref: '#/components/schemas/User'
+        department:
+          $ref: '#/components/schemas/Department'
+        status:
+          type: string
+          enum: [active, inactive, terminated]
+        employment_type:
+          type: string
+          enum: [full_time, part_time, contract, intern]
+        joining_date:
+          type: [string, 'null']
+          format: date
+    Department:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        code:
+          type: [string, 'null']
+    AttendanceEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+        employee_id:
+          type: integer
+        event_type:
+          type: string
+          enum: [CHECK_IN, CHECK_OUT, BREAK_START, BREAK_END, MANUAL_IN, MANUAL_OUT]
+        occurred_at:
+          type: string
+          format: date-time
+    DailyAttendance:
+      type: object
+      properties:
+        id:
+          type: integer
+        employee_id:
+          type: integer
+        date:
+          type: string
+          format: date
+        status:
+          type: string
+        first_check_in:
+          type: [string, 'null']
+          format: date-time
+        last_check_out:
+          type: [string, 'null']
+          format: date-time
+        total_work_minutes:
+          type: integer
+    PunchResult:
+      type: object
+      properties:
+        message:
+          type: string
+        action:
+          type: string
+          enum: [check_in, check_out, debounced]
+        employee:
+          type: object
+          properties:
+            code:
+              type: string
+            name:
+              type: string
+        event_type:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        daily:
+          $ref: '#/components/schemas/DailyAttendance'
+    LeaveRequest:
+      type: object
+      properties:
+        id:
+          type: integer
+        employee_id:
+          type: integer
+        leave_type_id:
+          type: integer
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        status:
+          type: string
+          enum: [PENDING, APPROVED, REJECTED, CANCELLED]
+        reason:
+          type: [string, 'null']
+    SalaryRecord:
+      type: object
+      description: Effective-dated salary version (§28). Amounts never appear in logs.
+      properties:
+        id:
+          type: integer
+        employee_id:
+          type: integer
+        basic_salary:
+          type: number
+        gross_salary:
+          type: number
+        net_salary:
+          type: number
+        effective_from:
+          type: string
+          format: date
+        effective_to:
+          type: [string, 'null']
+          format: date
+    Notification:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        data:
+          type: object
+        read_at:
+          type: [string, 'null']
+          format: date-time
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: integer
+        action:
+          type: string
+        actor_user_id:
+          type: [integer, 'null']
+        ip_address:
+          type: [string, 'null']
+        old_value:
+          type: [object, 'null']
+        new_value:
+          type: [object, 'null']
+        created_at:
+          type: string
+          format: date-time
+security:
+  - bearerAuth: []
+  - apiKeyAuth: []

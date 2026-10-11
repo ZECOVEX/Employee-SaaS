@@ -44,8 +44,13 @@
                     </thead>
                     <tbody class="divide-y divide-gray-100">
                         @forelse ($users as $user)
-                            <tr>
-                                <td class="px-6 py-4 text-gray-900">{{ $user->name }}</td>
+                            <tr class="{{ $user->deactivated_at ? 'bg-red-50' : '' }}">
+                                <td class="px-6 py-4 text-gray-900">
+                                    {{ $user->name }}
+                                    @if ($user->deactivated_at)
+                                        <span class="inline-flex rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700 ms-1">Deactivated</span>
+                                    @endif
+                                </td>
                                 <td class="px-6 py-4 text-gray-500">{{ $user->email }}</td>
                                 <td class="px-6 py-4 text-gray-500">
                                     @foreach ($user->roles as $role)
@@ -56,11 +61,24 @@
                                     @can('users.manage')
                                         <a href="{{ route('users.edit', $user) }}" class="text-indigo-600 hover:underline">Edit</a>
                                         @if ($user->id !== auth()->id())
+                                            <a href="{{ route('users.export', $user) }}" class="text-gray-500 hover:underline">Export</a>
                                             <form action="{{ route('users.reset_password', $user) }}" method="POST" class="inline"
                                                   onsubmit="return confirm('Reset this user&apos;s password to a temporary one?')">
                                                 @csrf
                                                 <button type="submit" class="text-amber-600 hover:underline">Reset password</button>
                                             </form>
+                                            @if ($user->deactivated_at)
+                                                <form action="{{ route('users.activate', $user) }}" method="POST" class="inline">
+                                                    @csrf
+                                                    <button type="submit" class="text-green-600 hover:underline">Reactivate</button>
+                                                </form>
+                                            @else
+                                                <form action="{{ route('users.deactivate', $user) }}" method="POST" class="inline"
+                                                      onsubmit="return confirm('Deactivate this user? They will no longer be able to sign in.')">
+                                                    @csrf
+                                                    <button type="submit" class="text-amber-700 hover:underline">Deactivate</button>
+                                                </form>
+                                            @endif
                                             <form action="{{ route('users.destroy', $user) }}" method="POST" class="inline"
                                                   onsubmit="return confirm('Delete this user?')">
                                                 @csrf

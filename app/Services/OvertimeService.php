@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Services;
 
 use App\Models\CompTimeEntry;
@@ -18,6 +20,8 @@ use App\Notifications\OvertimeDetected;
 use App\Notifications\OvertimeStaged;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -213,7 +217,26 @@ class OvertimeService
             $existing->fill($attributes);
             $existing->save();
         } else {
-            $existing = OvertimeRecord::withoutGlobalScopes()->create($attributes);
+            // §50 — the (org, employee, work_date) unique constraint is the
+            // race-condition backstop: if a concurrent punch created the row
+            // first, reuse it instead of failing.
+            try {
+                $existing = OvertimeRecord::withoutGlobalScopes()->create($attributes);
+            } catch (QueryException $e) {
+                $isUnique = str_contains($e->getMessage(), 'UNIQUE constraint failed')
+                    || str_contains($e->getMessage(), 'Duplicate entry')
+                    || (string) $e->getCode() === '23000';
+
+                if (! $isUnique) {
+                    throw $e;
+                }
+
+                $existing = OvertimeRecord::withoutGlobalScopes()
+                    ->where('organization_id', $orgId)
+                    ->where('employee_id', $employee->id)
+                    ->where('work_date', $date)
+                    ->firstOrFail();
+            }
         }
 
         $approved = in_array($existing->status, [
@@ -506,15 +529,19 @@ class OvertimeService
             && $record->countable_minutes > 0;
 
         if ($accrues) {
-            CompTimeEntry::withoutGlobalScopes()->updateOrCreate(
-                ['overtime_record_id' => $record->id],
-                [
-                    'organization_id' => $record->organization_id,
-                    'employee_id' => $record->employee_id,
-                    'work_date' => $record->work_date->toDateString(),
-                    'minutes' => (int) $record->countable_minutes,
-                ],
-            );
+            // §50 — upsert inside a transaction; the unique overtime_record_id
+            // constraint backstops concurrent approvals.
+            DB::transaction(function () use ($record): void {
+                CompTimeEntry::withoutGlobalScopes()->updateOrCreate(
+                    ['overtime_record_id' => $record->id],
+                    [
+                        'organization_id' => $record->organization_id,
+                        'employee_id' => $record->employee_id,
+                        'work_date' => $record->work_date->toDateString(),
+                        'minutes' => (int) $record->countable_minutes,
+                    ],
+                );
+            });
 
             return;
         }

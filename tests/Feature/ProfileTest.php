@@ -69,7 +69,7 @@ class ProfileTest extends TestCase
         $this->assertNotNull($user->refresh()->email_verified_at);
     }
 
-    public function test_user_can_delete_their_account(): void
+    public function test_self_service_deletion_is_prohibited_for_all_roles(): void
     {
         ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
         $user = $this->makeUser($org, 'company_admin', $roles);
@@ -77,26 +77,6 @@ class ProfileTest extends TestCase
         $this->actingAs($user);
 
         $component = Volt::test('profile.delete-user-form')
-            ->set('password', 'password')
-            ->call('deleteUser');
-
-        $component
-            ->assertHasNoErrors()
-            ->assertRedirect('/');
-
-        $this->assertGuest();
-        $this->assertNull($user->fresh());
-    }
-
-    public function test_correct_password_must_be_provided_to_delete_account(): void
-    {
-        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
-        $user = $this->makeUser($org, 'company_admin', $roles);
-
-        $this->actingAs($user);
-
-        $component = Volt::test('profile.delete-user-form')
-            ->set('password', 'wrong-password')
             ->call('deleteUser');
 
         $component
@@ -104,6 +84,7 @@ class ProfileTest extends TestCase
             ->assertNoRedirect();
 
         $this->assertNotNull($user->fresh());
+        $this->assertAuthenticated();
     }
 
     public function test_employee_cannot_change_own_name_or_email(): void
@@ -125,7 +106,7 @@ class ProfileTest extends TestCase
         $this->assertStringNotContainsString('hacked', $user->email);
     }
 
-    public function test_employee_profile_page_hides_delete_form_and_locks_identity(): void
+    public function test_employee_profile_page_shows_delete_note_and_locks_identity(): void
     {
         ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
         $user = $this->makeUser($org, 'employee', $roles);
@@ -134,11 +115,14 @@ class ProfileTest extends TestCase
             ->get('/profile')
             ->assertOk()
             ->assertSeeVolt('profile.update-profile-information-form')
-            ->assertDontSee('profile.delete-user-form')
+            // §43 — the section is always visible: it carries the
+            // admin-controlled-removal note + the self data-export link.
+            ->assertSeeVolt('profile.delete-user-form')
+            ->assertSee('administrator-controlled')
             ->assertSee('managed by HR');
     }
 
-    public function test_employee_cannot_delete_own_account(): void
+    public function test_any_user_cannot_delete_own_account(): void
     {
         ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
         $user = $this->makeUser($org, 'employee', $roles);
@@ -146,12 +130,79 @@ class ProfileTest extends TestCase
         $this->actingAs($user);
 
         Volt::test('profile.delete-user-form')
-            ->set('password', 'wrong-password')
             ->call('deleteUser')
             ->assertHasErrors('password');
 
         $this->assertNotNull($user->fresh());
         $this->assertAuthenticated();
+    }
+
+    public function test_user_can_download_a_json_export_of_their_own_data(): void
+    {
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
+        $user = $this->makeUser($org, 'employee', $roles);
+
+        $response = $this->actingAs($user)->get('/profile/export');
+
+        $response
+            ->assertOk()
+            ->assertHeader('Content-Disposition', 'attachment; filename="my-data-export.json"')
+            ->assertJsonPath('user.id', $user->id)
+            ->assertJsonPath('user.email', $user->email);
+
+        $this->assertStringNotContainsString($user->password, $response->getContent());
+    }
+
+    public function test_deactivated_user_cannot_log_in(): void
+    {
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
+        $user = $this->makeUser($org, 'employee', $roles);
+        $user->forceFill(['deactivated_at' => now()])->save();
+
+        Volt::test('pages.auth.login')
+            ->set('form.email', $user->email)
+            ->set('form.password', 'password')
+            ->call('login')
+            ->assertHasErrors('form.email');
+
+        $this->assertGuest();
+        $this->assertDatabaseHas('user_login_history', [
+            'organization_id' => $org->id,
+            'user_id' => $user->id,
+            'login_status' => 'FAILED',
+        ]);
+    }
+
+    public function test_admin_can_deactivate_and_reactivate_a_user(): void
+    {
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
+        $admin = $this->makeUser($org, 'company_admin', $roles);
+        $member = $this->makeUser($org, 'employee', $roles);
+
+        $this->actingAs($admin)
+            ->post(route('users.deactivate', $member))
+            ->assertRedirect();
+
+        $member->refresh();
+        $this->assertNotNull($member->deactivated_at);
+
+        $this->actingAs($admin)
+            ->post(route('users.activate', $member))
+            ->assertRedirect();
+
+        $this->assertNull($member->refresh()->deactivated_at);
+    }
+
+    public function test_admin_cannot_deactivate_the_last_active_company_admin(): void
+    {
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
+        $admin = $this->makeUser($org, 'company_admin', $roles);
+
+        $this->actingAs($admin)
+            ->post(route('users.deactivate', $admin))
+            ->assertSessionHasErrors();
+
+        $this->assertNull($admin->refresh()->deactivated_at);
     }
 
     public function test_password_change_is_audited_without_leaking_the_value(): void

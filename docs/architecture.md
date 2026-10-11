@@ -157,6 +157,7 @@ GET  /api/v1/...          → auth:sanctum,apikey + EnsureApiOrganization + perm
 | `overtime:expire-pending` | daily 00:10 | resolve pending overtime past the policy window |
 | `risk:evaluate {--date}` | daily 00:20 | sweep configured late-risk / overwork rules |
 | `status:generate {--month}` | monthly 1st 00:30 | finalized `employee_monthly_status` snapshots (§17) |
+| `privacy:prune` | daily 03:00 | delete login history + audit rows past the org retention windows (§43) |
 
 ## Auditing
 
@@ -171,10 +172,47 @@ GET  /api/v1/...          → auth:sanctum,apikey + EnsureApiOrganization + perm
 - `Dockerfile` — three stages: composer deps (`--ignore-platform-reqs`), Vite assets (node 22, copies vendor for Tailwind's pagination-view scan), runtime `php:8.4-apache` (pdo_sqlite + pdo_mysql, `mod_rewrite`/`mod_headers`, DocumentRoot `/var/www/html/public`)
 - `docker/entrypoint.sh` — APP_KEY generation, storage perms + `storage:link`, `config:cache`/`view:cache`, `migrate --force` (gated `RUN_MIGRATIONS`), `PlanSeeder` (gated `SKIP_PLAN_SEEDING`), then execs Apache
 - `docker-compose.yml` — port 8000, `app-storage` named volume so the SQLite DB survives image rebuilds
-- `.github/workflows/ci.yml` — backend job (Pint check + PHPUnit on PHP 8.4), frontend job (`npm ci` + `npm run build` on Node 22); phpunit already forces `MAIL_MAILER=array`, `QUEUE_CONNECTION=sync`, sqlite `:memory:`
+- `.github/workflows/ci.yml` — backend job (Pint check + Larastan + PHPUnit on PHP 8.4), frontend job (`npm ci` + `npm run build` on Node 22); phpunit already forces `MAIL_MAILER=array`, `QUEUE_CONNECTION=sync`, sqlite `:memory:`
+
+## Observability (Phase 10, §44)
+
+- `GET /health` — liveness probe (process up, no dependencies)
+- `GET /ready` — readiness probe: DB `SELECT 1` + cache store check; 503 with a JSON body when either fails
+- `SecurityHeaders` middleware (global): `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy`, HSTS on TLS requests
+- `RequestId` middleware (global): echoes `X-Request-Id` (accepts an inbound one) and `Log::shareContext`s `request_id`/`user_id`/`organization_id` so every log line in a request correlates
+- JSON error envelope for `api/*` routes: ValidationException 422, AuthorizationException 403, ModelNotFound 404, ThrottleRequestsException 429 (web routes keep the normal Laravel flow)
+
+## Login geolocation (Phase 10, §71)
+
+- `GeoLocator` resolves an IP to `{country, division, area}` with drivers `null` (default), `static` (longest-prefix CIDR match against `config/geoip.php` ranges — offline/dev), and `maxmind` (GeoLite2 mmdb when the file exists and geoip2 is installed); results cached per IP for 1h
+- `LoginHistoryService::record` writes a `user_login_history` row for every outcome and, on SUCCESS, updates the denormalized `users.last_login_*` snapshot
+- Hooked into: web `LoginForm` (FAILED/SUCCESS + deactivated block), MFA challenge page (MFA_FAILED/SUCCESS), `Api\AuthController::login`, `SsoLoginController::callback`
+- Surfacing: profile "Security information" section (last login + 5 recent), `audit-logs/logins` page with audit nav tabs, employee-profile audit tab
+- Approximate and security-signal-only — never the sole basis for blocking access (disclosed on `/privacy`)
+
+## Data privacy (Phase 10, §43)
+
+- Self-service account deletion is **prohibited for every role**; the profile delete section carries the admin-contact note + the self data-export link
+- Admin-controlled deactivation: `users.deactivated_at`; `POST users/{user}/deactivate|activate` (`users.manage`, self and last-company-admin protected, audited); blocks web/API/SSO/MFA login paths, each recording a FAILED history row
+- Export: `PrivacyService::exportUserData` builds a JSON dump (profile, employee record, recent logins); `GET profile/export` (self) and `GET users/{user}/export` (`users.manage`)
+- Retention: `privacy:prune` (daily 03:00) deletes login history past `login_retention_days` (default 180) and audit logs past `audit_retention_days` (default 365); orgs override both on the Settings page (0 = platform default)
+- Public `/privacy` page discloses IP-derived location collection, retention windows and the export/removal workflow
+
+## Terminal geo-security (Phase 10, §32)
+
+- `attendance_terminals` optionally stores a GPS pin (`latitude`/`longitude`) + `radius_meters` and an `allowed_ips` list (exact IPv4 or CIDR)
+- Punch API (`/api/attendance/nfc/punch`): source IP checked against the allowlist via `GeoLocator::matchesList` (403 when off-list); when `require_location` is on the client must send `latitude`/`longitude` and it must fall inside the haversine radius (422 missing fix, 403 outside radius)
+
+## Development requirements (Phase 10, §62)
+
+- `declare(strict_types=1)` across all 201 PHP files under app/routes/bootstrap/config/database
+- Larastan (`larastan/larastan` 3.13, level 5) with `phpstan.neon` + `phpstan-baseline.neon` (453 baselined Eloquent-relation generics; new code must stay clean); `composer analyse`
+- Form Requests for the main write endpoints (`Store/UpdateDepartmentRequest`, `Store/UpdatePositionRequest`, `StoreTerminalRequest`) — tenant-scoped unique/exists rules live in the request
+- `docs/openapi.yaml` — OpenAPI 3.1 for the /api/v1 surface + NFC punch (bearer + API-key security schemes)
+- `composer format|analyse|check` scripts; CI runs Pint, Larastan, PHPUnit
 
 ## Testing
 
 - `Tests\Concerns\CreatesOrganizations` helpers (`makeOrganization`, `makeUser`, …); `WorkforceDefaults::apply($org)` when a test needs a default schedule/leave types
-- Feature tests: tenancy isolation, RBAC allow/deny, employee CRUD, registration, auth (Volt), profile, attendance/leave/schedules, salary records + calculator + Statistics, payslips/revisions, reports (filters, CSV, permission gates), analytics, notifications, billing, API v1, audit filters, live attendance board, overtime detection/approvals/comp-time, attendance score engine, scoring settings, risk detection, monthly status snapshots, risk/statistics/dashboard wiring, Phase 6 statistics sections + overtime report + monthly score/status columns + analytics trend + dashboard score/[OT]/weekly-summary widgets, global search (RBAC sections, tenant isolation), leave attachments (upload/download visibility), Phase 7 payslip + monthly-status notifications, field-sync/audit/notification gap fixes, MANAGER_HR two-stage approval + EXPIRED expiry + monthly cap, positions admin UI (RBAC, audits, tenancy, employee-form round trip), support tickets + password recovery (two-option forgot password, Gate::support.view, must-change-password banner lifecycle, admin/manager resets), Phase 8 MFA (TOTP setup/confirm/login-challenge/recovery-codes), API keys (auth, abilities, org scope, revocation), SCIM 2.0 (token auth, user CRUD, active=false delete, audits), webhooks (dispatch/sign/deliver, event filtering, SSRF guard), OIDC SSO (state check, domain allowlist, link vs auto-provision, login-page org list), role permission editor (validation, company_admin lock), audit CSV export (filters + gating), Phase 9 Stripe (checkout URL, webhook signature, checkout-completed activation, invoice paid) (**350 tests**)
+- Feature tests: tenancy isolation, RBAC allow/deny, employee CRUD, registration, auth (Volt), profile, attendance/leave/schedules, salary records + calculator + Statistics, payslips/revisions, reports (filters, CSV, permission gates), analytics, notifications, billing, API v1, audit filters, live attendance board, overtime detection/approvals/comp-time, attendance score engine, scoring settings, risk detection, monthly status snapshots, risk/statistics/dashboard wiring, Phase 6 statistics sections + overtime report + monthly score/status columns + analytics trend + dashboard score/[OT]/weekly-summary widgets, global search (RBAC sections, tenant isolation), leave attachments (upload/download visibility), Phase 7 payslip + monthly-status notifications, field-sync/audit/notification gap fixes, MANAGER_HR two-stage approval + EXPIRED expiry + monthly cap, positions admin UI (RBAC, audits, tenancy, employee-form round trip), support tickets + password recovery (two-option forgot password, Gate::support.view, must-change-password banner lifecycle, admin/manager resets), Phase 8 MFA (TOTP setup/confirm/login-challenge/recovery-codes), API keys (auth, abilities, org scope, revocation), SCIM 2.0 (token auth, user CRUD, active=false delete, audits), webhooks (dispatch/sign/deliver, event filtering, SSRF guard), OIDC SSO (state check, domain allowlist, link vs auto-provision, login-page org list), role permission editor (validation, company_admin lock), audit CSV export (filters + gating), Phase 9 Stripe (checkout URL, webhook signature, checkout-completed activation, invoice paid, customer portal), Phase 10 (§43 deactivation/export/retention + self-delete prohibition, §71 login history + GeoLocator, §32 terminal IP allowlist + GPS radius, §44 health/ready, Stripe portal), plus `EndToEndJourneyTest` (onboard → punch → leave → payslip → audit) (**361 tests**)
 - `RefreshDatabase` + SQLite `:memory:`; each test class enables `RefreshDatabase` itself

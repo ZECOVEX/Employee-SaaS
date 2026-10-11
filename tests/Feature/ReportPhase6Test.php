@@ -87,7 +87,10 @@ class ReportPhase6Test extends TestCase
             ->assertSee('HOLIDAY')
             ->assertSee('1.5×')
             ->assertSee('2×')
-            ->assertDontSee('999');
+            // Tenant isolation: the other org's employee (and its 999
+            // minutes) must never appear. Match on the employee code — a
+            // raw digits check would flake against random CSRF tokens.
+            ->assertDontSee('EMP-OTH');
 
         // "Approved" covers manual and automatic approvals (§41).
         $this->actingAs($this->admin)

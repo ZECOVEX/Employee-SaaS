@@ -1,8 +1,12 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Models\UserLoginHistory;
+use App\Services\Geo\LoginHistoryService;
 use App\Services\OrganizationProvisioner;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -49,6 +53,7 @@ class RegisteredOrganizationController extends Controller
 
         Auth::login($result['user'], remember: true);
         $request->session()->regenerate();
+        app(LoginHistoryService::class)->recordFromRequest($result['user'], UserLoginHistory::STATUS_SUCCESS);
 
         return redirect()->intended(route('dashboard', absolute: false));
     }

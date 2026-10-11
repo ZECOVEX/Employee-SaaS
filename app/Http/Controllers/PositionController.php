@@ -1,7 +1,11 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers;
 
+use App\Http\Requests\StorePositionRequest;
+use App\Http\Requests\UpdatePositionRequest;
 use App\Models\Department;
 use App\Models\Position;
 use App\Services\AuditLogger;
@@ -9,7 +13,6 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 /**
@@ -46,16 +49,9 @@ class PositionController extends Controller
         return view('positions.create', ['departments' => $this->departments()]);
     }
 
-    public function store(Request $request): RedirectResponse
+    public function store(StorePositionRequest $request): RedirectResponse
     {
-        Gate::authorize('positions.manage');
-
-        $data = $request->validate([
-            'title' => ['required', 'string', 'max:120', Rule::unique('positions', 'title')
-                ->where('organization_id', $request->user()->organization_id)],
-            'department_id' => ['nullable', Rule::exists('departments', 'id')
-                ->where('organization_id', $request->user()->organization_id)],
-        ]);
+        $data = $request->validated();
 
         $position = Position::create($data);
 
@@ -76,17 +72,9 @@ class PositionController extends Controller
         ]);
     }
 
-    public function update(Request $request, Position $position): RedirectResponse
+    public function update(UpdatePositionRequest $request, Position $position): RedirectResponse
     {
-        Gate::authorize('positions.manage');
-
-        $data = $request->validate([
-            'title' => ['required', 'string', 'max:120', Rule::unique('positions', 'title')
-                ->where('organization_id', $request->user()->organization_id)
-                ->ignore($position->id)],
-            'department_id' => ['nullable', Rule::exists('departments', 'id')
-                ->where('organization_id', $request->user()->organization_id)],
-        ]);
+        $data = $request->validated();
 
         $old = $position->only(array_keys($data));
         $position->update($data);

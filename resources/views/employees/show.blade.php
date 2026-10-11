@@ -198,43 +198,72 @@
                             @break
 
                         @case('audit')
-                            @if ($tabData->isEmpty())
+                            @if ($tabData->isEmpty() && ($loginHistory ?? collect())->isEmpty())
                                 <p class="text-gray-500">No profile audit entries yet.</p>
                             @else
-                                <table class="min-w-full divide-y divide-gray-200">
-                                    <thead>
-                                        <tr class="text-left text-xs text-gray-500">
-                                            <th class="py-2 pe-4">When</th>
-                                            <th class="py-2 pe-4">Actor</th>
-                                            <th class="py-2 pe-4">Action</th>
-                                            <th class="py-2">Changes</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody class="divide-y divide-gray-100">
-                                        @foreach ($tabData as $log)
-                                            <tr>
-                                                <td class="py-2 pe-4 text-gray-600 whitespace-nowrap">{{ $log->created_at->format('d M Y H:i') }}</td>
-                                                <td class="py-2 pe-4 text-gray-900">{{ $log->actor?->name ?? 'System' }}</td>
-                                                <td class="py-2 pe-4 font-mono text-xs text-gray-700">{{ $log->action }}</td>
-                                                <td class="py-2 text-xs text-gray-500">
-                                                    @php
-                                                        $old = is_array($log->old_value) ? $log->old_value : [];
-                                                        $new = is_array($log->new_value) ? $log->new_value : [];
-                                                        $pairs = [];
-                                                        foreach (array_unique(array_merge(array_keys($old), array_keys($new))) as $key) {
-                                                            $from = $old[$key] ?? null;
-                                                            $to = $new[$key] ?? null;
-                                                            if ($from !== $to && ! (is_numeric($from) && is_numeric($to) && (float) $from === (float) $to) && ! (is_array($from) && is_array($to) && $from == $to)) {
-                                                                $pairs[] = $key;
-                                                            }
-                                                        }
-                                                    @endphp
-                                                    {{ $pairs === [] ? '—' : implode(', ', $pairs) }}
-                                                </td>
+                                @if ($tabData->isNotEmpty())
+                                    <table class="min-w-full divide-y divide-gray-200">
+                                        <thead>
+                                            <tr class="text-left text-xs text-gray-500">
+                                                <th class="py-2 pe-4">When</th>
+                                                <th class="py-2 pe-4">Actor</th>
+                                                <th class="py-2 pe-4">Action</th>
+                                                <th class="py-2">Changes</th>
                                             </tr>
-                                        @endforeach
-                                    </tbody>
-                                </table>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-100">
+                                            @foreach ($tabData as $log)
+                                                <tr>
+                                                    <td class="py-2 pe-4 text-gray-600 whitespace-nowrap">{{ $log->created_at->format('d M Y H:i') }}</td>
+                                                    <td class="py-2 pe-4 text-gray-900">{{ $log->actor?->name ?? 'System' }}</td>
+                                                    <td class="py-2 pe-4 font-mono text-xs text-gray-700">{{ $log->action }}</td>
+                                                    <td class="py-2 text-xs text-gray-500">
+                                                        @php
+                                                            $old = is_array($log->old_value) ? $log->old_value : [];
+                                                            $new = is_array($log->new_value) ? $log->new_value : [];
+                                                            $pairs = [];
+                                                            foreach (array_unique(array_merge(array_keys($old), array_keys($new))) as $key) {
+                                                                $from = $old[$key] ?? null;
+                                                                $to = $new[$key] ?? null;
+                                                                if ($from !== $to && ! (is_numeric($from) && is_numeric($to) && (float) $from === (float) $to) && ! (is_array($from) && is_array($to) && $from == $to)) {
+                                                                    $pairs[] = $key;
+                                                                }
+                                                            }
+                                                        @endphp
+                                                        {{ $pairs === [] ? '—' : implode(', ', $pairs) }}
+                                                    </td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                @endif
+
+                                @if (($loginHistory ?? collect())->isNotEmpty())
+                                    <h4 class="mt-6 mb-2 text-sm font-semibold text-gray-700">Recent logins</h4>
+                                    <p class="mb-2 text-xs text-gray-500">Approximate IP geolocation, security monitoring only.</p>
+                                    <table class="min-w-full divide-y divide-gray-200">
+                                        <thead>
+                                            <tr class="text-left text-xs text-gray-500">
+                                                <th class="py-2 pe-4">When</th>
+                                                <th class="py-2 pe-4">Status</th>
+                                                <th class="py-2 pe-4">IP</th>
+                                                <th class="py-2">Location</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-100">
+                                            @foreach ($loginHistory as $entry)
+                                                <tr>
+                                                    <td class="py-2 pe-4 text-gray-600 whitespace-nowrap">{{ $entry->created_at?->format('d M Y H:i') }}</td>
+                                                    <td class="py-2 pe-4">
+                                                        <span class="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold {{ $entry->login_status === 'SUCCESS' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800' }}">{{ $entry->login_status }}</span>
+                                                    </td>
+                                                    <td class="py-2 pe-4 text-gray-700">{{ $entry->ip_address ?? '—' }}</td>
+                                                    <td class="py-2 text-gray-700">{{ $entry->locationLabel() }}</td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                @endif
                             @endif
                             @break
 

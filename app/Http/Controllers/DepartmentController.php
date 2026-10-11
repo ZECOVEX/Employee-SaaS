@@ -1,7 +1,11 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers;
 
+use App\Http\Requests\StoreDepartmentRequest;
+use App\Http\Requests\UpdateDepartmentRequest;
 use App\Models\Department;
 use App\Models\User;
 use App\Services\AuditLogger;
@@ -9,7 +13,6 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 class DepartmentController extends Controller
@@ -41,18 +44,9 @@ class DepartmentController extends Controller
         return view('departments.create', ['managers' => $this->managers()]);
     }
 
-    public function store(Request $request): RedirectResponse
+    public function store(StoreDepartmentRequest $request): RedirectResponse
     {
-        Gate::authorize('departments.manage');
-
-        $data = $request->validate([
-            'name' => ['required', 'string', 'max:120', Rule::unique('departments', 'name')
-                ->where('organization_id', $request->user()->organization_id)],
-            'code' => ['nullable', 'string', 'max:40'],
-            'description' => ['nullable', 'string', 'max:1000'],
-            'manager_id' => ['nullable', Rule::exists('users', 'id')
-                ->where('organization_id', $request->user()->organization_id)],
-        ]);
+        $data = $request->validated();
 
         $department = Department::create($data);
 
@@ -73,19 +67,9 @@ class DepartmentController extends Controller
         ]);
     }
 
-    public function update(Request $request, Department $department): RedirectResponse
+    public function update(UpdateDepartmentRequest $request, Department $department): RedirectResponse
     {
-        Gate::authorize('departments.manage');
-
-        $data = $request->validate([
-            'name' => ['required', 'string', 'max:120', Rule::unique('departments', 'name')
-                ->where('organization_id', $request->user()->organization_id)
-                ->ignore($department->id)],
-            'code' => ['nullable', 'string', 'max:40'],
-            'description' => ['nullable', 'string', 'max:1000'],
-            'manager_id' => ['nullable', Rule::exists('users', 'id')
-                ->where('organization_id', $request->user()->organization_id)],
-        ]);
+        $data = $request->validated();
 
         $old = $department->only(array_keys($data));
         $department->update($data);

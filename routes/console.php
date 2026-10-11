@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -16,3 +18,6 @@ Schedule::command('risk:evaluate')->dailyAt('00:20');
 
 // §17: finalize last month's status snapshots (after the 00:10 sweep).
 Schedule::command('status:generate')->monthlyOn(1, '00:30');
+
+// §43: prune audit logs / login history past the retention windows.
+Schedule::command('privacy:prune')->dailyAt('03:00');

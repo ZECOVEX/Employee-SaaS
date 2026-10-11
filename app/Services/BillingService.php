@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Services;
 
 use App\Models\Employee;
@@ -7,6 +9,7 @@ use App\Models\Invoice;
 use App\Models\Organization;
 use App\Models\Plan;
 use App\Models\Subscription;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -56,17 +59,44 @@ class BillingService
     /**
      * Blocks employee creation once the plan's headcount cap is reached.
      * Organizations without a subscription/plan are never blocked.
+     *
+     * §50 — the check runs inside a transaction with the subscription row
+     * locked, so two simultaneous employee creations cannot both slip under
+     * the cap.
      */
     public function ensureCanAddEmployee(Organization|int $organization): void
     {
-        if ($this->canAddEmployee($organization)) {
-            return;
-        }
+        $organizationId = $this->organizationId($organization);
 
-        throw ValidationException::withMessages([
-            'employee_limit' => 'Your plan allows '.$this->employeeLimit($organization)
-                .' active employees. Switch to a larger plan on the Billing page to add more.',
-        ]);
+        DB::transaction(function () use ($organizationId): void {
+            $subscription = Subscription::withoutGlobalScopes()
+                ->where('organization_id', $organizationId)
+                ->where('status', '!=', 'canceled')
+                ->lockForUpdate()
+                ->latest('id')
+                ->first();
+
+            $limit = $subscription?->plan?->employee_limit;
+
+            if ($limit === null) {
+                return;
+            }
+
+            $count = Employee::withoutGlobalScopes()
+                ->where('organization_id', $organizationId)
+                ->where('status', 'active')
+                ->lockForUpdate()
+                ->count();
+
+            if ($count < $limit) {
+                return;
+            }
+
+            throw ValidationException::withMessages([
+                'employee_limit' => 'Your plan allows '.$limit
+                    .' active employees. Switch to a larger plan on the Billing page to add more.',
+            ]);
+        });
     }
 
     /** Give a newly provisioned organization the free plan when the catalog is seeded. */
@@ -89,22 +119,29 @@ class BillingService
 
     public function switchPlan(Organization|int $organization, Plan $plan): Subscription
     {
-        $subscription = Subscription::withoutGlobalScopes()
-            ->firstOrNew(['organization_id' => $this->organizationId($organization)]);
+        // §50 — lock the row so concurrent switches serialize on one winner.
+        return DB::transaction(function () use ($organization, $plan): Subscription {
+            $subscription = Subscription::withoutGlobalScopes()
+                ->where('organization_id', $this->organizationId($organization))
+                ->lockForUpdate()
+                ->latest('id')
+                ->first()
+                ?? new Subscription(['organization_id' => $this->organizationId($organization)]);
 
-        $subscription->plan_id = $plan->id;
+            $subscription->plan_id = $plan->id;
 
-        if (! $subscription->exists || $subscription->status === 'canceled') {
-            $subscription->status = 'active';
-        }
+            if (! $subscription->exists || $subscription->status === 'canceled') {
+                $subscription->status = 'active';
+            }
 
-        // A plan change starts a fresh billing period.
-        $subscription->current_period_start = now()->toDateString();
-        $subscription->current_period_end = now()->addMonth()->toDateString();
+            // A plan change starts a fresh billing period.
+            $subscription->current_period_start = now()->toDateString();
+            $subscription->current_period_end = now()->addMonth()->toDateString();
 
-        $subscription->save();
+            $subscription->save();
 
-        return $subscription;
+            return $subscription;
+        });
     }
 
     public function issueInvoice(Organization|int $organization, Plan $plan): Invoice

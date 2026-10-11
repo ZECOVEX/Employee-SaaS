@@ -1,9 +1,12 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers;
 
 use App\Models\AuditLog;
 use App\Models\User;
+use App\Models\UserLoginHistory;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\View\View;
@@ -39,6 +42,34 @@ class AuditLogController extends Controller
             ->get(['id', 'name']);
 
         return view('audit.index', compact('logs', 'actions', 'resourceTypes', 'actors'));
+    }
+
+    /**
+     * §71 — login history: filterable by status / division / user / date.
+     * Surfaces the GeoIP-resolved location next to each attempt.
+     */
+    public function logins(Request $request): View
+    {
+        Gate::authorize('audit.view');
+
+        $logins = UserLoginHistory::with('user:id,name,email')
+            ->when($request->filled('status'), fn ($q) => $q->where('login_status', $request->string('status')->toString()))
+            ->when($request->filled('division'), fn ($q) => $q->where('geo_division', $request->string('division')->toString()))
+            ->when($request->filled('user'), fn ($q) => $q->where('user_id', $request->integer('user')))
+            ->when($request->filled('from'), fn ($q) => $q->whereDate('created_at', '>=', $request->date('from')))
+            ->when($request->filled('to'), fn ($q) => $q->whereDate('created_at', '<=', $request->date('to')))
+            ->orderByDesc('id')
+            ->paginate(25)
+            ->withQueryString();
+
+        $divisions = UserLoginHistory::select('geo_division')->distinct()
+            ->whereNotNull('geo_division')->orderBy('geo_division')->pluck('geo_division');
+
+        $users = User::whereIn('id', UserLoginHistory::select('user_id')->distinct()->whereNotNull('user_id'))
+            ->orderBy('name')
+            ->get(['id', 'name']);
+
+        return view('audit.logins', compact('logins', 'divisions', 'users'));
     }
 
     /**
