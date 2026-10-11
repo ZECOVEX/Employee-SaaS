@@ -88,6 +88,32 @@ The analytics/reporting work reuses the catalog (still 30 keys):
 - **Leave attachment** → rides on `leave.view` (download route) and the un-permissioned `leave.store`; download visibility mirrors the leave index (`leave.manage` = all, approve-only = own team, otherwise own requests)
 - **Payslip / monthly status notifications** → no keys; recipients are the employee themself
 
+## Password recovery — custom gate, no catalog key
+
+- **Forgot-password options** — the email reset link needs no auth; filing a support ticket (Option 2) validates the email against the `users` table (`organization_id` not null) and needs no gate
+- **Support section** (`GET support`, `GET support/{ticket}`, `POST support/{ticket}/reply|reset-password|resolve`) → custom `Gate::support.view` (`AppServiceProvider`, deliberately outside the 30-key catalog because visibility follows `departments.manager_id`): company_admin role **or** manager role **or** manages at least one department; the sidebar "Support" entry and every staff button use the same gate
+- **Admin password reset** (`POST users/{user}/reset-password`) → `users.manage` (company_admin, blocked for self); managers reach the same `PasswordResetService` through a support ticket instead
+- **Must-change-password banner** → no gate; it renders for any authenticated user with `users.must_change_password` set and disappears the moment the profile form or email reset link clears it
+
+## Phase 8 — no new catalog keys
+
+Security & enterprise features reuse the catalog (still 30 keys):
+
+- **API keys + SCIM tokens** (`settings/api-keys`, create/revoke endpoints) → `settings.manage`
+- **Webhooks** (`settings/webhooks`, create/destroy/test endpoints) → `settings.manage`
+- **SSO** (`settings/sso`, discovery test) → `settings.manage`; the login-page SSO button list and `sso/{org}` / `sso/callback` routes are **guest** routes (no gate)
+- **Role permission editor** (`GET roles`, `GET/PUT roles/{role}`) → `settings.manage`; the `company_admin` role is locked (read-only) server-side regardless of the caller's intent
+- **Audit CSV export** (`GET audit-logs/export`) → rides the existing `audit.view` gate (same as the audit index)
+- **MFA** (`profile` enable/confirm/disable/regenerate, `mfa.challenge`) → self-service; any authenticated user manages their own MFA, the challenge gate blocks login until satisfied
+
+### API-key & SCIM-token subjects (not `App\Models\User`)
+
+`Auth::viaRequest('apikey'|'scim')` can authenticate an `ApiKey`/`ScimToken` model as the request "user". Catalog gates therefore check `method_exists($user, 'canPermission') && $user->canPermission($key)` instead of type-hinting `User`, and `Gate::before` / `platform.organizations` / `support.view` guard with `instanceof User`. An API key's `abilities` array is its permission set (`*` = all); a SCIM token grants everything on the SCIM routes (no catalog `permission:` middleware there — token presence + org scope is the gate). `EnsureApiOrganization` loads `roles.permissions` only for real `User` subjects.
+
+## Phase 9 — no new permission keys
+
+- **Stripe checkout** (`POST billing/stripe/checkout`) → `settings.manage` (same as plan switching); `POST api/stripe/webhook` is **unauthenticated** (Stripe calls it) and signature-verified via `STRIPE_WEBHOOK_SECRET`
+
 ## Self-service exceptions (no extra permission needed)
 
 - **Own attendance** — any authenticated employee can view `GET attendance/employee/{theirOwnId}`; viewing anyone else's record requires `attendance.view` (403 otherwise). The sidebar shows a "My Attendance" entry when `attendance.view` is absent.

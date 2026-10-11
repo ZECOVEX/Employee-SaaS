@@ -11,6 +11,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'organization_id',
     'plan_id',
     'status',
+    'stripe_customer_id',
+    'stripe_subscription_id',
     'trial_ends_at',
     'current_period_start',
     'current_period_end',

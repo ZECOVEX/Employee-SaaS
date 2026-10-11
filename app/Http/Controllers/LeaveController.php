@@ -8,6 +8,8 @@ use App\Models\LeaveRequest;
 use App\Models\LeaveType;
 use App\Services\AuditLogger;
 use App\Services\LeaveService;
+use App\Services\Webhooks\WebhookEvent;
+use App\Services\Webhooks\WebhookService;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -179,6 +181,12 @@ class LeaveController extends Controller
             return back()->withErrors(['leave' => $e->getMessage()]);
         }
 
+        app(WebhookService::class)->dispatch(
+            WebhookEvent::LEAVE_APPROVED,
+            (int) $leaveRequest->organization_id,
+            ['leave_request_id' => $leaveRequest->id, 'employee_id' => $leaveRequest->employee_id],
+        );
+
         return back()->with('status', 'Leave approved.');
     }
 
@@ -192,6 +200,12 @@ class LeaveController extends Controller
         } catch (\RuntimeException $e) {
             return back()->withErrors(['leave' => $e->getMessage()]);
         }
+
+        app(WebhookService::class)->dispatch(
+            WebhookEvent::LEAVE_REJECTED,
+            (int) $leaveRequest->organization_id,
+            ['leave_request_id' => $leaveRequest->id, 'employee_id' => $leaveRequest->employee_id],
+        );
 
         return back()->with('status', 'Leave rejected.');
     }

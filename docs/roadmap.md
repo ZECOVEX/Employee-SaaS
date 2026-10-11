@@ -12,6 +12,10 @@ Phase 5 (scoring & risk + overtime) is complete: attendance score engine, scorin
 
 Phase 6 (analytics & reporting) is complete: Statistics month/week sections + OVERTIME section, overtime report, monthly report score/status/overtime columns, analytics overtime trend, employee dashboard score/[OT]/weekly-summary widgets.
 
+Phase 8 (security & enterprise integration) is complete: MFA (TOTP + recovery codes), API keys, SCIM 2.0, outbound webhooks, OIDC SSO, role permission editor, audit CSV export (SAML deferred).
+
+Phase 9 (monetization) is complete: Stripe checkout + webhooks over the raw HTTP client (plans/invoices already shipped in Phase 4).
+
 ## Phase 2 — Workforce operations ✅
 
 - ✅ Attendance tracking (NFC punch API, manual corrections, derived daily rows, late/early/overtime rules)
@@ -120,6 +124,39 @@ Tests: 262 green at that point (17 new — `GlobalSearchTest` 8, `LeaveAttachmen
 
 Tests: **279 green** (11 from the field-sync batch + 6 new in `PositionsTest` — RBAC + nav gating, CRUD with audits, per-tenant title uniqueness + cross-tenant 404, org-scoped department rule, employee-form/profile round trip). pint clean, production assets built.
 
+## Support tickets + password recovery (shipped)
+
+- ✅ **Two-option forgot password** — the guest page keeps Option 1 (email reset link via `Password::sendResetLink`) and gains Option 2 "Create a support ticket" (email + optional message, validated against the `users` table with `organization_id` not null); `SupportTicketService::file()` writes the row, audits `support.created`, and pings every company_admin/manager-role user plus every `departments.manager_id` holder in the requester's org (`SupportTicketCreated` notification) — the role subquery bypasses Role's org scope, which would otherwise 1=0 in the guest context
+- ✅ **Support section** — `Gate::support.view` (custom, not a catalog key: company_admin role, manager role, or manages a department), sidebar "Support" entry, index with status filter (All/Open/Resolved), show page with reply + "Mark resolved" + "Reset password & resolve"; audits `support.replied`/`support.resolved`; tenant isolation via `BelongsToOrganization`
+- ✅ **Admin/manager password resets** — `PasswordResetService::issue()` generates an 8-char hard password (MD5 of random entropy, first 8 hex chars), rotates the remember token, sets `users.must_change_password`, sends `PasswordChangeRequired`, and audits `user.password_reset` with the value redacted; entry points: `POST users/{user}/reset-password` (`users.manage`, self blocked, amber one-time flash on the Users index) and `POST support/{ticket}/reset-password` (resolves the ticket in the same step)
+- ✅ **Must-change-password until done** — new admin-created users (`users.store`, `employees.store`) and every admin-issued reset flip `must_change_password`; an amber banner on every authenticated page ("Please change your password" + CTA to `profile#password`) plus the standing bell notice stay until the profile form (or the email reset link) clears the flag and marks `PasswordChangeRequired` notifications read
+- ✅ **Schema** — `support_tickets` table + `users.must_change_password` (boolean, default false)
+
+Tests: **289 green** (10 new in `SupportTicketTest` — guest ticket flow + stakeholder notification + audit, known-email validation, gate matrix incl. HR-as-department-manager, cross-tenant 404/isolation, users-page reset + 8-char hash + redacted audit + self-block, ticket reset-and-resolve, reply/resolve, must-change banner lifecycle through the profile form, nav href gating). pint clean, production assets built.
+
+## Phase 8 — Security & enterprise integration ✅
+
+All milestones done (tests: 341 green after Phase 8; 350 after Phase 9):
+
+- ✅ **M1 MFA (TOTP)** — `users.mfa_secret` (encrypted), `mfa_enabled`, `mfa_recovery_codes` (json, sha256-hashed); `TotpService` (RFC 6238, base32 secret, ±1 window drift) + `MfaService` (begin/confirm/disable, one-time 8×10-char recovery codes, challenge staging in session `mfa.pending_user_id`/`mfa.pending_secret`); profile Volt card with QR (`BaconQrCode` SVG backend), enable/confirm/disable/regenerate-recovery-codes; login flow stages a challenge (`mfa.challenge` Volt page, rate limited) after password success when `mfa_enabled`, accepts TOTP or a recovery code, then logs in
+- ✅ **M2 API keys** — `api_keys` table (`name`, non-secret `prefix`, sha256 `key_hash`, `abilities` json, `last_used_at`/`revoked_at`); full key `emsak_{40}` shown once on create (session flash), `settings/api-keys` management page (`settings.manage`); `auth:apikey` guard via `Auth::viaRequest` (must also exist in `config/auth.php`) resolves the key from `Authorization: Bearer`/`X-Api-Key`; `ApiKey::canPermission()` checks `abilities` (`*` = all), org-scoped by the same `EnsureApiOrganization` middleware; `/api/v1/*` routes accept `auth:sanctum,apikey`
+- ✅ **M3 SCIM 2.0** — `scim_tokens` table + `auth:scim` guard; `/api/scim/v2` group (`ServiceProviderConfig`, `ResourceTypes`, `Users`, `Groups`) with bearer-token auth; Users: create (employee role auto-attach, name from `name.formatted`/given+family), list (userName filter), show, PATCH (userName/name/password, `active=false` → delete), DELETE; all writes audited (`scim.user_created|updated|deleted`); token management on the API-keys page
+- ✅ **M4 Webhooks** — `webhook_subscriptions` (`url`, `events` json, `secret`, `is_active`, delivery bookkeeping); `WebhookService::dispatch` filters by event + `WebhookSubscription::matches`, queues `DeliverWebhook` (POST raw JSON body, `X-Webhook-Event` + `X-Webhook-Signature: sha256=<hmac>` headers, 3-attempt retry via queue); events: `employee.created|updated|deleted`, `leave.requested|approved|rejected`, `overtime.approved|rejected`, `attendance.punched`, `payslip.finalized`, `subscription.changed`; management page with per-subscription secret shown once + SSRF guard rejecting localhost/private-IP targets
+- ✅ **M5 OIDC SSO** — per-org settings (`organizations.settings`: `sso_enabled`, `sso_name`, `sso_discovery_url`, `sso_client_id`, `sso_client_secret` (encrypted at rest), `sso_allowed_domains`); settings page with discovery-URL test; login page lists SSO-enabled orgs; `GET sso/{organization}` redirects to the IdP (`state` in session, PKCE not required by spec); `GET sso/callback` verifies state, exchanges the code at the token endpoint (raw HTTP), reads identity from the userinfo endpoint (no local JWT verification), enforces the allowed-domain allowlist, then links an existing org user by email or auto-provisions a new employee-role user; SAML deferred (spec allows OIDC)
+- ✅ **M6 Role permission editor** — `GET roles` + `GET/PUT roles/{role}` (`settings.manage`): per-role permission checkboxes against the 30-key catalog; `company_admin` role locked (read-only, all keys on); hr/manager/employee fully editable; validation rejects unknown keys; role/permission changes audited
+- ✅ **M7 Audit CSV export** — `GET audit-logs/export` (`audit.view`): streamed CSV honoring the same action/actor/resource/date filters as the index; Export button on the audit page
+
+## Phase 9 — Stripe billing ✅
+
+Shipped over the raw Laravel HTTP client (`Http::fake`-friendly — the `stripe/stripe-php` package was removed in favor of `StripeService` calling `api.stripe.com` directly):
+
+- ✅ **Config** — `services.stripe.secret` (`STRIPE_SECRET_KEY`) + `services.stripe.webhook_secret` (`STRIPE_WEBHOOK_SECRET`); `STRIPE_MODE` not needed — checkout only starts for paid plans, plan switching stays direct on the Billing page
+- ✅ **Checkout** — `POST billing/stripe/checkout` (`settings.manage`) → `StripeService::checkoutUrl` creates a Checkout Session (`mode: subscription`, success/cancel back to Billing) and redirects; `plans.stripe_price_id` holds the Stripe price for paid plans; customer auto-created/reused via `organizations.settings.stripe_customer_id` → `subscriptions.stripe_customer_id`
+- ✅ **Webhook** — `POST api/stripe/webhook` (no auth, throttled): HMAC-SHA256 signature check (`t=`/`v1=` with 300s tolerance, raw body); handles `checkout.session.completed` (activates the plan + subscription in place), `customer.subscription.updated|deleted` (status sync, cancellation), `invoice.paid` (marks the open invoice paid); `StripeWebhookController` returns 503 when unconfigured, 400 on bad signatures; `markInvoicePaid` bypasses the org global scope (webhook has no session user)
+- ✅ **UI** — Billing page "Pay with Stripe" button for paid plans (hidden when `stripe_price_id` is empty or Stripe is unconfigured), checkout success/canceled banners
+
+Deferred: SAML SSO (OIDC covers the spec), Stripe Customer Portal, proration rules.
+
 ## Standing decisions (locked)
 
 | Decision | Choice |
@@ -127,4 +164,4 @@ Tests: **279 green** (11 from the field-sync batch + 6 new in `PositionsTest` �
 | Project path | `E:\employee-saas` |
 | Frontend | Blade + Livewire (Volt), not Next.js |
 | Tenancy | Shared DB + `organization_id`, not stancl/tenancy |
-| Scope | Phases 1–7 fully complete + spec leftovers + field-sync/audit/notification gap fixes |
+| Scope | Phases 1–7 + spec leftovers + field-sync/audit/notification fixes + Phase 8 + Phase 9 fully complete |

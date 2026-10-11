@@ -4,7 +4,6 @@ namespace App\Services;
 
 use App\Models\User;
 use App\Notifications\PasswordChangeRequired;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
 /**

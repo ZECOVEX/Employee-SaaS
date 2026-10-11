@@ -59,7 +59,11 @@ class SupportTicketService
 
         return User::where('organization_id', $organizationId)
             ->where(fn ($q) => $q
-                ->whereHas('roles', fn ($r) => $r->whereIn('slug', ['company_admin', 'manager']))
+                // Role carries its own org scope which sees "no user" in this
+                // guest context (1 = 0) — bypass it and filter by org explicitly.
+                ->whereHas('roles', fn ($r) => $r
+                    ->withoutGlobalScope(OrganizationScope::class)
+                    ->whereIn('slug', ['company_admin', 'manager']))
                 ->orWhereIn('id', $managerIds))
             ->get()
             ->each(fn (User $user) => $user->notify(new SupportTicketCreated($ticket)));

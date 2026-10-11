@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'name',
     'employee_limit',
     'price_monthly',
+    'stripe_price_id',
     'is_active',
 ])]
 class Plan extends Model

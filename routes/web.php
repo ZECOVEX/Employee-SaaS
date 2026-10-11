@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AnalyticsController;
+use App\Http\Controllers\ApiKeyController;
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\Auth\RegisteredOrganizationController;
@@ -18,18 +19,32 @@ use App\Http\Controllers\PayslipController;
 use App\Http\Controllers\PlatformController;
 use App\Http\Controllers\PositionController;
 use App\Http\Controllers\ReportController;
+use App\Http\Controllers\RolePermissionController;
 use App\Http\Controllers\SalaryController;
 use App\Http\Controllers\ScheduleController;
 use App\Http\Controllers\ScoringSettingsController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\SettingsController;
+use App\Http\Controllers\SsoLoginController;
+use App\Http\Controllers\SsoSettingsController;
 use App\Http\Controllers\StatisticsController;
 use App\Http\Controllers\SupportTicketController;
 use App\Http\Controllers\TerminalController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\WebhookController;
 use Illuminate\Support\Facades\Route;
 
 Route::view('/', 'welcome');
+
+// Phase 8 — OIDC SSO (guest): redirect to the IdP and complete the callback.
+// The callback route must precede the {organization} wildcard.
+Route::middleware('guest')->group(function () {
+    Route::get('sso/callback', [SsoLoginController::class, 'callback'])
+        ->middleware('throttle:30,1')
+        ->name('sso.callback');
+    Route::get('sso/{organization}', [SsoLoginController::class, 'redirectToProvider'])
+        ->name('sso.login');
+});
 
 // Registration creates an organization (replaces default Breeze register).
 Route::middleware('guest')->group(function () {
@@ -95,6 +110,10 @@ Route::middleware(['auth', 'verified', 'organization', 'company'])
         Route::get('audit-logs', [AuditLogController::class, 'index'])
             ->middleware('permission:audit.view')
             ->name('audit-logs.index');
+        // Phase 8 — advanced audit: CSV export honouring the same filters.
+        Route::get('audit-logs/export', [AuditLogController::class, 'export'])
+            ->middleware('permission:audit.view')
+            ->name('audit-logs.export');
 
         Route::get('settings', [SettingsController::class, 'edit'])
             ->middleware('permission:settings.manage')
@@ -102,6 +121,43 @@ Route::middleware(['auth', 'verified', 'organization', 'company'])
         Route::put('settings', [SettingsController::class, 'update'])
             ->middleware('permission:settings.manage')
             ->name('settings.update');
+
+        // Phase 8 — API keys + SCIM tokens (settings.manage).
+        Route::get('settings/api-keys', [ApiKeyController::class, 'index'])
+            ->name('api-keys.index');
+        Route::post('settings/api-keys', [ApiKeyController::class, 'store'])
+            ->name('api-keys.store');
+        Route::delete('settings/api-keys/{apiKey}', [ApiKeyController::class, 'destroy'])
+            ->name('api-keys.destroy');
+        Route::post('settings/scim-tokens', [ApiKeyController::class, 'storeScimToken'])
+            ->name('scim-tokens.store');
+        Route::delete('settings/scim-tokens/{scimToken}', [ApiKeyController::class, 'destroyScimToken'])
+            ->name('scim-tokens.destroy');
+
+        // Phase 8 — webhooks (settings.manage).
+        Route::get('settings/webhooks', [WebhookController::class, 'index'])
+            ->name('webhooks.index');
+        Route::post('settings/webhooks', [WebhookController::class, 'store'])
+            ->name('webhooks.store');
+        Route::delete('settings/webhooks/{webhook}', [WebhookController::class, 'destroy'])
+            ->name('webhooks.destroy');
+
+        // Phase 8 — OIDC SSO settings (settings.manage).
+        Route::get('settings/sso', [SsoSettingsController::class, 'edit'])
+            ->name('sso.edit');
+        Route::put('settings/sso', [SsoSettingsController::class, 'update'])
+            ->name('sso.update');
+        Route::post('settings/sso/test', [SsoSettingsController::class, 'test'])
+            ->name('sso.test');
+
+        // Phase 8 — advanced permissions: role editor (users.manage).
+        Route::get('roles', [RolePermissionController::class, 'index'])
+            ->name('roles.index');
+        Route::get('roles/{role}/edit', [RolePermissionController::class, 'edit'])
+            ->name('roles.edit');
+        Route::put('roles/{role}', [RolePermissionController::class, 'update'])
+            ->name('roles.update');
+
         Route::get('settings/schedule', [ScheduleController::class, 'edit'])
             ->middleware('permission:settings.manage')
             ->name('schedule.edit');
@@ -150,6 +206,10 @@ Route::middleware(['auth', 'verified', 'organization', 'company'])
         Route::post('billing/plan', [BillingController::class, 'updatePlan'])
             ->middleware('permission:settings.manage')
             ->name('billing.plan');
+        // Phase 9 — Stripe Checkout redirect (plans with a stripe_price_id).
+        Route::post('billing/stripe/checkout', [BillingController::class, 'stripeCheckout'])
+            ->middleware('permission:settings.manage')
+            ->name('billing.stripe_checkout');
 
         Route::get('attendance', [AttendanceController::class, 'index'])
             ->middleware('permission:attendance.view')

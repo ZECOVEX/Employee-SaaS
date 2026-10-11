@@ -128,6 +128,9 @@ new class extends Component
             // Personal inbox — also reachable from the desktop bell dropdown,
             // but the mobile menu needs its own entry (§64).
             ['label' => 'Notifications', 'route' => 'notifications.index', 'active' => 'notifications.*', 'can' => true],
+            // Password-recovery tickets (Gate::support.view — admins,
+            // managers, department managers).
+            ['label' => 'Support', 'route' => 'support.index', 'active' => 'support.*', 'can' => $user->can('support.view')],
             [
                 'label' => 'Reports',
                 'active' => ['reports.attendance', 'reports.monthly', 'reports.overtime', 'reports.salary', 'analytics.*'],
@@ -141,9 +144,13 @@ new class extends Component
             ],
             [
                 'label' => 'Settings',
-                'active' => ['settings.*', 'schedule.*', 'audit-logs.*', 'billing.*'],
+                'active' => ['settings.*', 'schedule.*', 'audit-logs.*', 'billing.*', 'roles.*', 'sso.*', 'webhooks.*', 'api-keys.*'],
                 'children' => [
-                    ['label' => 'Settings', 'route' => 'settings.edit', 'active' => ['settings.*', 'schedule.*'], 'can' => $can('settings.manage')],
+                    ['label' => 'Settings', 'route' => 'settings.edit', 'active' => ['settings.edit', 'settings.update', 'schedule.*'], 'can' => $can('settings.manage')],
+                    ['label' => 'Single Sign-On', 'route' => 'sso.edit', 'active' => 'sso.*', 'can' => $can('settings.manage')],
+                    ['label' => 'API & Provisioning', 'route' => 'api-keys.index', 'active' => ['api-keys.*', 'scim-tokens.*'], 'can' => $can('settings.manage')],
+                    ['label' => 'Webhooks', 'route' => 'webhooks.index', 'active' => 'webhooks.*', 'can' => $can('settings.manage')],
+                    ['label' => 'Roles', 'route' => 'roles.index', 'active' => 'roles.*', 'can' => $can('users.manage')],
                     ['label' => 'Audit Logs', 'route' => 'audit-logs.index', 'active' => 'audit-logs.*', 'can' => $can('audit.view')],
                     ['label' => 'Billing', 'route' => 'billing.index', 'active' => 'billing.*', 'can' => $can('settings.manage')],
                 ],

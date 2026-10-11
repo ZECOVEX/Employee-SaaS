@@ -6,6 +6,8 @@ use App\Models\CompTimeEntry;
 use App\Models\OvertimeRecord;
 use App\Models\User;
 use App\Services\OvertimeService;
+use App\Services\Webhooks\WebhookEvent;
+use App\Services\Webhooks\WebhookService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -99,6 +101,14 @@ class OvertimeController extends Controller
 
         $record = $this->overtime->approve($overtimeRecord, (int) $request->user()->id);
 
+        if ($record->status !== OvertimeRecord::STATUS_PENDING) {
+            app(WebhookService::class)->dispatch(
+                WebhookEvent::OVERTIME_APPROVED,
+                (int) $overtimeRecord->organization_id,
+                ['overtime_record_id' => $overtimeRecord->id, 'employee_id' => $overtimeRecord->employee_id],
+            );
+        }
+
         return back()->with(
             'status',
             $record->status === OvertimeRecord::STATUS_PENDING
@@ -116,6 +126,12 @@ class OvertimeController extends Controller
         ]);
 
         $this->overtime->reject($overtimeRecord, (int) $request->user()->id, $data['reason']);
+
+        app(WebhookService::class)->dispatch(
+            WebhookEvent::OVERTIME_REJECTED,
+            (int) $overtimeRecord->organization_id,
+            ['overtime_record_id' => $overtimeRecord->id, 'employee_id' => $overtimeRecord->employee_id],
+        );
 
         return back()->with('status', 'Overtime rejected.');
     }

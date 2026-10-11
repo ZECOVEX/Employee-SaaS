@@ -19,6 +19,7 @@ use Laravel\Sanctum\HasApiTokens;
     'name',
     'email',
     'password',
+    'must_change_password',
     'is_platform_admin',
     'last_login_at',
 ])]
@@ -37,8 +38,14 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'must_change_password' => 'boolean',
             'is_platform_admin' => 'boolean',
             'last_login_at' => 'datetime',
+            // Phase 8 — TOTP MFA: secret encrypted at rest, recovery codes a
+            // json list of sha256 hashes.
+            'mfa_secret' => 'encrypted',
+            'mfa_enabled' => 'boolean',
+            'mfa_recovery_codes' => 'array',
         ];
     }
 

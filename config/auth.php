@@ -42,6 +42,18 @@ return [
             'driver' => 'session',
             'provider' => 'users',
         ],
+
+        // Phase 8 — callback-based request guards registered in
+        // AppServiceProvider (Auth::viaRequest). The config entries give
+        // them names; no provider is needed (they resolve the model
+        // themselves from the request).
+        'apikey' => [
+            'driver' => 'apikey',
+        ],
+
+        'scim' => [
+            'driver' => 'scim',
+        ],
     ],
 
     /*

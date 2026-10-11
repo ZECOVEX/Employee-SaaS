@@ -44,6 +44,8 @@
                 </div>
                 <div class="flex gap-2">
                     <button type="submit" class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-50">Filter</button>
+                    <a href="{{ route('audit-logs.export', request()->query()) }}"
+                       class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-50">Export CSV</a>
                     @if (request()->hasAny(['action', 'resource_type', 'actor', 'from', 'to']))
                         <a href="{{ route('audit-logs.index') }}" class="px-4 py-2 border border-transparent rounded-md text-sm text-gray-500 hover:text-gray-700">Reset</a>
                     @endif

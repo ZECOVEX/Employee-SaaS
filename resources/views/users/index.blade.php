@@ -16,6 +16,17 @@
                 <div class="mb-4 rounded-md bg-green-50 p-4 text-sm text-green-800">{{ session('status') }}</div>
             @endif
 
+            @if (session('temp_password'))
+                <div class="mb-4 rounded-md bg-amber-50 p-4 text-sm text-amber-900 border border-amber-300">
+                    <p class="font-semibold">Temporary password</p>
+                    <p class="mt-1">
+                        Share this with the user over a trusted channel — it is shown only once:
+                        <code class="mx-1 rounded bg-amber-100 px-2 py-0.5 font-bold text-amber-900">{{ session('temp_password') }}</code>
+                    </p>
+                    <p class="mt-1">They must change it at next login.</p>
+                </div>
+            @endif
+
             <form method="GET" class="mb-4">
                 <input type="text" name="q" value="{{ request('q') }}" placeholder="Search users..."
                        class="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm w-full sm:w-64" />
@@ -45,6 +56,11 @@
                                     @can('users.manage')
                                         <a href="{{ route('users.edit', $user) }}" class="text-indigo-600 hover:underline">Edit</a>
                                         @if ($user->id !== auth()->id())
+                                            <form action="{{ route('users.reset_password', $user) }}" method="POST" class="inline"
+                                                  onsubmit="return confirm('Reset this user&apos;s password to a temporary one?')">
+                                                @csrf
+                                                <button type="submit" class="text-amber-600 hover:underline">Reset password</button>
+                                            </form>
                                             <form action="{{ route('users.destroy', $user) }}" method="POST" class="inline"
                                                   onsubmit="return confirm('Delete this user?')">
                                                 @csrf

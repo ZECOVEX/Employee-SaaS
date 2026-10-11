@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Role;
 use App\Models\User;
+use App\Notifications\PasswordChangeRequired;
 use App\Services\AuditLogger;
+use App\Services\PasswordResetService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -64,6 +66,8 @@ class UserController extends Controller
                 'email' => $data['email'],
                 'password' => Hash::make($data['password']),
                 'email_verified_at' => now(),
+                // Admin-set initial password: must be changed at first login.
+                'must_change_password' => true,
             ]);
             $user->roles()->attach($data['role_id']);
 
@@ -75,6 +79,9 @@ class UserController extends Controller
             'email' => $data['email'],
             'role_id' => $data['role_id'],
         ]);
+
+        // Bell notice + app banner stay until the user picks their own password.
+        $user->notify(new PasswordChangeRequired);
 
         return redirect()
             ->route('users.index')
@@ -152,6 +159,26 @@ class UserController extends Controller
         return redirect()
             ->route('users.index')
             ->with('status', 'User deleted.');
+    }
+
+    /**
+     * Admin-issued password reset (§ password recovery): an 8-char temporary
+     * password is generated, the account is flagged must_change_password,
+     * and the plaintext is flashed once for the admin to relay.
+     */
+    public function resetPassword(Request $request, User $user): RedirectResponse
+    {
+        Gate::authorize('users.manage');
+        $this->assertSameOrg($user);
+
+        abort_if($user->id === $request->user()->id, 422, 'You cannot reset your own account here.');
+
+        $password = app(PasswordResetService::class)->issue($user);
+
+        return redirect()
+            ->route('users.index')
+            ->with('status', "Password reset for {$user->name}.")
+            ->with('temp_password', $password);
     }
 
     private function assertSameOrg(User $user): void

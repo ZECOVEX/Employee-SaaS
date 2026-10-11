@@ -26,6 +26,13 @@ class SupportTicket extends Model
 
     public const STATUS_RESOLVED = 'resolved';
 
+    protected function casts(): array
+    {
+        return [
+            'resolved_at' => 'datetime',
+        ];
+    }
+
     public function requester(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');

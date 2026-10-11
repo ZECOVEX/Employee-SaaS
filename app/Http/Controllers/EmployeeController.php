@@ -12,11 +12,14 @@ use App\Models\Position;
 use App\Models\Role;
 use App\Models\SalaryRecord;
 use App\Models\User;
+use App\Notifications\PasswordChangeRequired;
 use App\Services\AuditLogger;
 use App\Services\BillingService;
 use App\Services\OvertimeService;
 use App\Services\RiskService;
 use App\Services\ScoreService;
+use App\Services\Webhooks\WebhookEvent;
+use App\Services\Webhooks\WebhookService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -123,6 +126,8 @@ class EmployeeController extends Controller
                 'email' => $data['email'],
                 'password' => Hash::make($data['password']),
                 'email_verified_at' => now(),
+                // Admin-set initial password: must be changed at first login.
+                'must_change_password' => true,
             ]);
 
             $roleId = $data['role_id']
@@ -171,6 +176,16 @@ class EmployeeController extends Controller
             'department_id' => $data['department_id'] ?? null,
             'overtime_eligibility' => $data['overtime_eligibility'] ?? null,
         ]);
+
+        // New accounts must change the admin-set password at first login;
+        // the bell notice + app banner stay until they do.
+        $user->notify(new PasswordChangeRequired);
+
+        app(WebhookService::class)->dispatch(
+            WebhookEvent::EMPLOYEE_CREATED,
+            (int) $request->user()->organization_id,
+            ['employee_id' => $employee->id, 'employee_code' => $employee->employee_code],
+        );
 
         return redirect()
             ->route('employees.show', $employee)
@@ -355,6 +370,12 @@ class EmployeeController extends Controller
             'user' => $employee->user->fresh()->only(['name', 'email']),
         ]);
 
+        app(WebhookService::class)->dispatch(
+            WebhookEvent::EMPLOYEE_UPDATED,
+            (int) $request->user()->organization_id,
+            ['employee_id' => $employee->id, 'employee_code' => $employee->employee_code],
+        );
+
         return redirect()
             ->route('employees.show', $employee)
             ->with('status', 'Employee updated.');
@@ -370,10 +391,17 @@ class EmployeeController extends Controller
         ];
 
         $userId = $employee->user_id;
+        $organizationId = (int) $employee->organization_id;
         $employee->delete();
         User::whereKey($userId)->delete();
 
         $this->audit->log('employee.deleted', null, $old, null);
+
+        app(WebhookService::class)->dispatch(
+            WebhookEvent::EMPLOYEE_DELETED,
+            $organizationId,
+            ['employee_id' => $employee->id, 'employee_code' => $employee->employee_code],
+        );
 
         return redirect()
             ->route('employees.index')

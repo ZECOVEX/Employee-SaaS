@@ -1,5 +1,6 @@
 <?php
 
+use App\Notifications\PasswordChangeRequired;
 use App\Notifications\PasswordChanged;
 use App\Services\AuditLogger;
 use Illuminate\Support\Facades\Auth;
@@ -32,9 +33,18 @@ new class extends Component
 
         Auth::user()->update([
             'password' => Hash::make($validated['password']),
+            // Password changed: the must-change flag (temp/initial password)
+            // is satisfied and the app-wide banner disappears.
+            'must_change_password' => false,
         ]);
 
         Auth::user()->notify(new PasswordChanged);
+
+        // Retire the standing "change your password" bell notices.
+        Auth::user()->notifications()
+            ->where('type', PasswordChangeRequired::class)
+            ->whereNull('read_at')
+            ->update(['read_at' => now()]);
 
         // Phase 7: password changes are audited; the hash is never stored.
         app(AuditLogger::class)->log('password.changed', Auth::user(), null, [
@@ -47,7 +57,7 @@ new class extends Component
     }
 }; ?>
 
-<section>
+<section id="password">
     <header>
         <h2 class="text-lg font-medium text-gray-900">
             {{ __('Update Password') }}

@@ -48,6 +48,10 @@ new #[Layout('layouts.guest')] class extends Component
                 $user->forceFill([
                     'password' => Hash::make($this->password),
                     'remember_token' => Str::random(60),
+                    // Self-service reset: the user chose this password, so any
+                    // must-change flag from an admin-issued temporary password
+                    // is satisfied.
+                    'must_change_password' => false,
                 ])->save();
 
                 event(new PasswordReset($user));

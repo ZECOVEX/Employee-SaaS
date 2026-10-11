@@ -11,6 +11,11 @@
             @if ($errors->has('employee_limit'))
                 <div class="rounded-md bg-red-50 p-4 text-sm text-red-700">{{ $errors->first('employee_limit') }}</div>
             @endif
+            @if (request('checkout') === 'success')
+                <div class="rounded-md bg-green-50 p-4 text-sm text-green-800">Payment received — your subscription will update within a few seconds.</div>
+            @elseif (request('checkout') === 'canceled')
+                <div class="rounded-md bg-amber-50 p-4 text-sm text-amber-800">Checkout canceled — you have not been charged.</div>
+            @endif
 
             {{-- Current plan + headcount usage --}}
             <div class="bg-white shadow-sm sm:rounded-lg p-6">
@@ -89,14 +94,26 @@
                                             Current plan
                                         </span>
                                     @else
-                                        <form action="{{ route('billing.plan') }}" method="POST">
-                                            @csrf
-                                            <input type="hidden" name="plan_id" value="{{ $p->id }}" />
-                                            <button type="submit"
-                                                    class="w-full rounded bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500">
-                                                Switch
-                                            </button>
-                                        </form>
+                                        <div class="space-y-2">
+                                            @if ($stripeEnabled && $p->stripe_price_id)
+                                                <form action="{{ route('billing.stripe_checkout') }}" method="POST">
+                                                    @csrf
+                                                    <input type="hidden" name="plan_id" value="{{ $p->id }}" />
+                                                    <button type="submit"
+                                                            class="w-full rounded bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500">
+                                                        Pay with Stripe
+                                                    </button>
+                                                </form>
+                                            @endif
+                                            <form action="{{ route('billing.plan') }}" method="POST">
+                                                @csrf
+                                                <input type="hidden" name="plan_id" value="{{ $p->id }}" />
+                                                <button type="submit"
+                                                        class="w-full rounded border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50">
+                                                    Switch
+                                                </button>
+                                            </form>
+                                        </div>
                                     @endif
                                 </div>
                             </div>

@@ -18,6 +18,26 @@
         <div class="min-h-screen bg-gray-100">
             <livewire:layout.navigation />
 
+            {{-- Must-change-password banner: stays on every page until the
+                 user picks their own password (admin/manager reset or
+                 admin-created account). --}}
+            @auth
+                @if (auth()->user()->must_change_password)
+                    <div class="bg-amber-50 border-b-2 border-amber-400">
+                        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                            <p class="text-sm text-amber-800">
+                                <span class="font-semibold">Please change your password.</span>
+                                Your account is using a temporary password — change it now to keep your account secure.
+                            </p>
+                            <a href="{{ route('profile') }}#password"
+                               class="shrink-0 inline-flex items-center px-3 py-1.5 bg-amber-600 rounded-md text-xs font-semibold text-white uppercase tracking-wider hover:bg-amber-700">
+                                Change password
+                            </a>
+                        </div>
+                    </div>
+                @endif
+            @endauth
+
             <!-- Page Heading -->
             @if (isset($header))
                 <header class="bg-white shadow">

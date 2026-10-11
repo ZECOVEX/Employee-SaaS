@@ -2,6 +2,8 @@
 
 namespace App\Livewire\Forms;
 
+use App\Models\User;
+use App\Services\Mfa\MfaService;
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
@@ -24,6 +26,10 @@ class LoginForm extends Form
     /**
      * Attempt to authenticate the request's credentials.
      *
+     * When the account has TOTP enabled the password is accepted but the
+     * session is dropped and the MFA challenge is staged instead — login is
+     * only completed on the challenge page.
+     *
      * @throws ValidationException
      */
     public function authenticate(): void
@@ -36,6 +42,14 @@ class LoginForm extends Form
             throw ValidationException::withMessages([
                 'form.email' => trans('auth.failed'),
             ]);
+        }
+
+        /** @var User $user */
+        $user = Auth::user();
+
+        if ($user->mfa_enabled) {
+            Auth::logout();
+            app(MfaService::class)->stageChallenge($user, $this->remember);
         }
 
         RateLimiter::clear($this->throttleKey());

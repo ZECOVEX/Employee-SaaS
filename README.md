@@ -1,4 +1,4 @@
-# Employee Management SaaS (Phases 1–6)
+# Employee Management SaaS (Phases 1–9)
 
 Multi-tenant employee management platform built with Laravel 13, Livewire 3, and Breeze (Volt). Each registered organization (tenant) gets isolated employees, departments, users, roles, and audit logs.
 
@@ -43,7 +43,7 @@ Open http://localhost:8000 — the entrypoint generates `APP_KEY`, caches config
 ## What's Included
 
 ### Phase 1 — Core platform
-- **Auth**: login, registration with organization provisioning, password reset, email verification
+- **Auth**: login, registration with organization provisioning, two-option password recovery (email reset link or a support ticket admins/department managers follow up on), email verification; admin/manager password resets issue an 8-char temporary password and the user must change it at first login (amber banner until they do)
 - **Tenancy**: shared database + `organization_id` on all tenant tables; `OrganizationScope` global scope auto-filters queries
 - **RBAC**: 4 roles per org (Company Admin, HR, Manager, Employee), 30-permission catalog, Laravel Gates
 - **Employees**: full CRUD, employee codes unique per tenant, profile + employment fields
@@ -97,19 +97,33 @@ Open http://localhost:8000 — the entrypoint generates `APP_KEY`, caches config
 - **Leave attachment**: optional PDF/JPG/PNG/WebP upload (≤ 2 MB) on the leave request form, stored on the private disk, downloadable with the same visibility rules as the leave index
 - **Phase 7 notifications**: `PayslipReady` on payslip finalize/revise and `MonthlyStatusReady` (score + status band) whenever a monthly status snapshot is finalized
 
+### Phase 8 — Security & enterprise integration
+- **MFA (TOTP)**: enable from the profile (QR + confirm code), TOTP or one-time recovery code at login (rate-limited challenge page), disable/regenerate recovery codes — self-service, no admin approval needed
+- **API keys**: `emsak_…` keys scoped to an organization with a permission-abilities subset (or `*`); created/revoked under Settings → API & Provisioning (`settings.manage`), full key shown once; authenticates `/api/v1/*` alongside Sanctum via the `auth:apikey` guard
+- **SCIM 2.0**: `/api/scim/v2` user/group provisioning with bearer tokens (also created under API & Provisioning); Users create/list/show/patch/delete (PATCH `active=false` deletes), employee role auto-attached, all writes audited
+- **Webhooks**: per-org subscriptions (`employee.*`, `leave.*`, `overtime.*`, `attendance.punched`, `payslip.finalized`, `subscription.changed`) with HMAC-SHA256-signed deliveries (`X-Webhook-Signature`), queued with retry, SSRF-guarded URL validation, secret shown once
+- **OIDC SSO**: per-org discovery URL + client id/secret (encrypted at rest) + allowed email domains; "Sign in with SSO" button on the login page; callback links an existing user or auto-provisions an employee (SAML deferred — OIDC covers the spec)
+- **Role permission editor**: Settings → Roles — per-role checkbox matrix against the 30-key catalog; `company_admin` locked, hr/manager/employee editable; changes audited
+- **Audit CSV export**: `GET audit-logs/export` streams the filtered audit trail as CSV (same filters as the index, gated `audit.view`)
+
+### Phase 9 — Stripe billing
+- **Checkout**: "Pay with Stripe" on the Billing page for paid plans (`plans.stripe_price_id`), Stripe Checkout Session redirect; success/cancel banners on return
+- **Webhooks**: `POST api/stripe/webhook` (signature-verified with `STRIPE_WEBHOOK_SECRET`, 300s tolerance) handles `checkout.session.completed` (activates plan + subscription), `customer.subscription.updated|deleted` (status sync), and `invoice.paid` (marks the open invoice paid)
+- Implemented over the raw Laravel HTTP client (not the stripe-php package) so `Http::fake` keeps tests hermetic; unconfigured Stripe hides the button and returns 503 on the webhook
+
 ## Tests
 
 ```bash
-php artisan test        # 279 tests
+php artisan test        # 350 tests
 vendor/bin/pint app tests routes database bootstrap resources --format agent # code style
 ```
 
 ## Documentation
 
-- [docs/architecture.md](docs/architecture.md) — tenancy, middleware, request flow, API, real-time
+- [docs/architecture.md](docs/architecture.md) — tenancy, middleware, request flow, API, real-time, MFA/SSO/webhooks/Stripe
 - [docs/schema.md](docs/schema.md) — database tables and relationships
 - [docs/rbac.md](docs/rbac.md) — permission catalog and role matrix
-- [docs/roadmap.md](docs/roadmap.md) — Phases 1–6 (all complete)
+- [docs/roadmap.md](docs/roadmap.md) — Phases 1–9 (all complete)
 
 ## Scheduled Commands
 
@@ -124,3 +138,4 @@ php artisan status:generate [--month=]     # monthly 1st 00:30 — employee mont
 - Dev database: SQLite (`database/database.sqlite`); tests use `:memory:`
 - `.env` is pre-configured by the setup script (`APP_KEY` generated)
 - Rebuild assets after view changes: `npm run build`
+- Stripe (Phase 9, optional): set `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` and a `stripe_price_id` on paid plans; without them the checkout button is hidden and the webhook returns 503

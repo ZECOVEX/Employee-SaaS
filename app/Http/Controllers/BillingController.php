@@ -5,7 +5,10 @@ namespace App\Http\Controllers;
 use App\Models\Invoice;
 use App\Models\Plan;
 use App\Services\AuditLogger;
+use App\Services\Billing\StripeService;
 use App\Services\BillingService;
+use App\Services\Webhooks\WebhookEvent;
+use App\Services\Webhooks\WebhookService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -17,6 +20,7 @@ class BillingController extends Controller
     public function __construct(
         private readonly BillingService $billing,
         private readonly AuditLogger $audit,
+        private readonly StripeService $stripe,
     ) {}
 
     public function index(Request $request): View
@@ -37,7 +41,30 @@ class BillingController extends Controller
                 ->latest()
                 ->limit(12)
                 ->get(),
+            'stripeEnabled' => $this->stripe->isConfigured(),
+            'checkoutStatus' => $request->query('checkout'),
         ]);
+    }
+
+    /**
+     * Phase 9 — redirect to Stripe Checkout for plans that carry a price id.
+     */
+    public function stripeCheckout(Request $request): RedirectResponse
+    {
+        Gate::authorize('settings.manage');
+
+        abort_unless($this->stripe->isConfigured(), 404, 'Stripe is not configured.');
+
+        $organization = $request->user()->organization;
+
+        $data = $request->validate([
+            'plan_id' => ['required', 'integer', Rule::exists('plans', 'id')->where('is_active', true)],
+        ]);
+
+        $plan = Plan::findOrFail($data['plan_id']);
+        abort_if($plan->stripe_price_id === null, 404, 'This plan is not purchasable via Stripe.');
+
+        return redirect()->away($this->stripe->checkoutUrl($organization, $plan));
     }
 
     public function updatePlan(Request $request): RedirectResponse
@@ -73,6 +100,12 @@ class BillingController extends Controller
             'plan' => $plan->slug,
             'price_monthly' => $plan->price_monthly,
         ]);
+
+        app(WebhookService::class)->dispatch(
+            WebhookEvent::SUBSCRIPTION_CHANGED,
+            (int) $organization->id,
+            ['plan' => $plan->slug, 'price_monthly' => $plan->price_monthly],
+        );
 
         return redirect()
             ->route('billing.index')

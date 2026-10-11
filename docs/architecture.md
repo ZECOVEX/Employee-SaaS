@@ -6,7 +6,8 @@
 - Breeze (livewire stack) for auth scaffolding
 - Blade + Tailwind (Vite build)
 - SQLite (dev) / PostgreSQL-ready (pgsql driver installed)
-- Laravel Sanctum for the versioned JSON API (`/api/v1`, personal access tokens)
+- Laravel Sanctum for the versioned JSON API (`/api/v1`, personal access tokens) + custom `apikey`/`scim` guards (Phase 8)
+- Raw Laravel HTTP client for Stripe (Phase 9 — `stripe/stripe-php` deliberately NOT installed so `Http::fake` works)
 - Docker (multi-stage `php:8.4-apache`) + GitHub Actions CI
 
 ## Multi-tenancy
@@ -40,11 +41,12 @@ GET /employees
 
 - Permission catalog is code-defined: `RoleSeederService::CATALOG` (30 keys)
 - Roles are per-organization rows (`roles` + `role_permission` pivot)
-- Gates registered dynamically in `AppServiceProvider` for every catalog key
-- `Gate::before` short-circuits to `true` for `is_platform_admin`
+- Gates registered dynamically in `AppServiceProvider` for every catalog key; callbacks do **not** type-hint `App\Models\User` — they check `method_exists($user, 'canPermission')` so API-key / SCIM-token subjects authenticate too
+- `Gate::before` short-circuits to `true` for `instanceof User && $user->is_platform_admin` (ApiKey/ScimToken expose a public `$is_platform_admin = false` property so Blade view composers can read it safely)
 - Navigation links are filtered by `$user->canPermission()` via view composer
 - Phase 4 features add no new keys — billing/live board/API map onto existing permissions (see `docs/rbac.md`)
 - Phase 5 adds `overtime.view` / `overtime.manage` (admin, HR, manager); settings pages stay on `settings.manage`, self-service overtime needs no key
+- Phases 8–9 add no new keys — API keys, webhooks, SSO, the role editor and Stripe checkout all sit on `settings.manage`; MFA and the role editor's per-role catalog are self-service / `settings.manage` respectively; audit CSV export rides `audit.view`
 
 ## Registration / provisioning
 
@@ -61,13 +63,52 @@ GET /employees
 
 ```
 POST /api/v1/auth/login  → Sanctum token (30 days) + user
-GET  /api/v1/...          → auth:sanctum + EnsureApiOrganization + permission:{key}
+GET  /api/v1/...          → auth:sanctum,apikey + EnsureApiOrganization + permission:{key}
 ```
 
-- `EnsureApiOrganization` (`app/Http/Middleware/EnsureApiOrganization.php`) resolves the caller's org and returns 403 for suspended tenants; runs before route `permission:` middleware
+- `EnsureApiOrganization` (`app/Http/Middleware/EnsureApiOrganization.php`) resolves the caller's org and returns 403 for suspended tenants; runs before route `permission:` middleware; loads `roles.permissions` only for real `User` subjects (API keys skip the eager-load)
 - Responses use Eloquent API resources (`app/Http/Resources/*`) — collections paginate, single rows include `organization_id` where relevant
 - NFC punch endpoint keeps its v1 alias (`/api/v1/attendance/nfc/punch`, `X-Terminal-Key` auth)
 - `tests/Feature/ApiV1Test.php::withToken()` forgets cached guard users between requests (Laravel's `RequestGuard` caches per instance)
+
+## Authentication guards (Phase 8)
+
+- **`apikey`** — `Auth::viaRequest('apikey', fn ($request) => ApiKey::resolveFromRequest($request))` in `AppServiceProvider`; the guard **must also exist in `config/auth.php`** (Laravel 13's `resolve()` calls `getConfig()` first and throws "Auth guard [x] is not defined" otherwise — just the `'driver' => 'apikey'` entry, no provider). Full key (`emsak_…`) is presented as `Authorization: Bearer` or `X-Api-Key`; the `prefix` column is the non-secret lookup, `key_hash` the sha256. `ApiKey::canPermission()` checks the `abilities` array (`*` grants everything); org scoping is identical to Sanctum (`EnsureApiOrganization`). Catalog gates must not type-hint `User` — they call `method_exists($user, 'canPermission')` so both User and ApiKey subjects pass
+- **`scim`** — `Auth::viaRequest('scim', fn ($request) => ScimToken::resolveFromRequest($request))`, same `config/auth.php` requirement; `/api/scim/v2/*` uses `auth:scim,api_organization`; SCIM endpoints carry no catalog `permission:` middleware (token presence + org scope is the gate, `ScimToken::canPermission()` is true while active)
+
+## SCIM 2.0 (Phase 8)
+
+`ScimController` under `/api/scim/v2` (bearer SCIM token): `ServiceProviderConfig`, `ResourceTypes`, `Users` (create/list/show/patch/delete — create auto-attaches the `employee` role and picks the name from `name.formatted` or given+family; PATCH `active=false` deletes since there is no deactivated state; all writes audited `scim.user_*`), `Groups` (read-only stub). Validated SCIM payloads arrive **nested** (`name.formatted` → `$data['name']['formatted']`) — `ScimController::resolveName()` normalizes.
+
+## MFA (Phase 8)
+
+- `TotpService` — RFC 6238 TOTP: base32 secret, 30s period, 6 digits, ±1 window drift check, `otpauth://` URL for the QR (rendered as SVG by `BaconQrCode` on the profile page)
+- `MfaService` — setup lifecycle: `beginSetup` stages the secret in session (`mfa.pending_secret`), `confirmSetup` validates a code then persists `users.mfa_secret` (encrypted cast) + `mfa_enabled`, `consumeRecoveryCode` hashes-and-matches against `users.mfa_recovery_codes` (8 × 10-char codes, sha256-stored), `regenerateRecoveryCodes` rotates them, `disable` clears both columns; challenge staging keys are `mfa.pending_user_id` + `mfa.pending_secret`
+- **Login flow**: `LoginForm::authenticate` (Livewire) checks `mfa_enabled` after the password passes — if set, it logs the (just-authenticated) user out and stages the challenge in session, redirecting to the `mfa.challenge` Volt page; the challenge (rate limited) accepts a TOTP code or a recovery code, then logs the staged user in; a stale/absent session key bounces back to `/login`
+- Profile card (`livewire/profile/mfa-form.blade.php`, mounted on the profile page): setup (QR + code confirm), disable, regenerate recovery codes — self-service, no catalog key
+
+## Webhooks (Phase 8)
+
+- `WebhookService::dispatch(event, orgId, payload)` filters `webhook_subscriptions` by `events` (json list or `['*']` via `WebhookSubscription::matches`) + `is_active`, then queues `DeliverWebhook` per matching subscription
+- `DeliverWebhook` (queued; phpunit runs the queue sync): POSTs the raw JSON body with `Content-Type: application/json`, `X-Webhook-Event`, and `X-Webhook-Signature: sha256=<HMAC-SHA256 of the raw body with the subscription secret>`; records `last_delivery_at` / `last_status` (HTTP code or `failed`)
+- Events (`WebhookEvent` constants): `employee.created|updated|deleted`, `leave.requested|approved|rejected`, `overtime.approved|rejected`, `attendance.punched`, `payslip.finalized`, `subscription.changed` — dispatched from the respective controllers/services
+- `WebhookController` (management UI, `settings.manage`) enforces an SSRF guard on create/update: rejects `localhost`, `127.*`, `10.*`, `192.168.*`, `169.254.169.254`; the per-subscription secret is generated on create and shown **once** (session flash, gone on reload)
+
+## OIDC SSO (Phase 8)
+
+- Per-org settings in `organizations.settings`: `sso_enabled`, `sso_name`, `sso_discovery_url`, `sso_client_id`, `sso_client_secret` (**stored `encrypt()`ed**), `sso_allowed_domains` (array); managed by `SsoSettingsController` (`settings.manage`) with a discovery-URL test (fetches `<discovery>/.well-known/openid-configuration`)
+- Login page (`pages.auth.login`) lists SSO-enabled orgs (filtered in PHP from a bounded org query to avoid DB-specific JSON boolean casting); each renders a "Sign in with SSO" button → `GET sso/{organization}` (**route order matters: `sso/callback` is registered first**, otherwise the `{organization}` wildcard shadows it and 404s)
+- `SsoLoginController::redirectToProvider` — fetches the discovery document, stores `state` + org id in session, redirects to the `authorization_endpoint`
+- `SsoLoginController::callback` — verifies `state`, exchanges the code at the `token_endpoint` (raw HTTP), reads the identity from the **userinfo endpoint** (no local JWT verification — deliberate), enforces the domain allowlist, then **links** an existing same-org user by email or **auto-provisions** a new user with the `employee` role; logs in and regenerates the session
+- SAML deferred (spec allows OIDC-only)
+
+## Role permission editor (Phase 8)
+
+`RolePermissionController` — index (all org roles + permission counts), edit (checkbox matrix vs the 30-key catalog), update (validated `permissions.*` against `CATALOG`, synced in a transaction, unknown keys rejected by validation); the `company_admin` role is **locked** server-side (read-only, forced to the full catalog); hr/manager/employee are freely editable; changes audited.
+
+## Audit CSV export (Phase 8)
+
+`AuditLogController::export` — same filters as the index (action, resource type, actor, from, to), streamed via `response()->streamDownload` + `fputcsv`; gated `audit.view` (same as the index; returns Symfony's `StreamedResponse`).
 
 ## Real-time (live attendance board)
 
@@ -75,9 +116,17 @@ GET  /api/v1/...          → auth:sanctum + EnsureApiOrganization + permission:
 - Polling fallback `GET attendance/live/poll?after={hash}` returns `{changed: false, rows: ...}` when the `md5` of the current rows matches the cursor (line 19 fallback)
 - `LiveAttendanceBoard` builds rows without tenant scopes (route middleware already gates `attendance.view`), computes status from `daily_attendance`/leave, and labels overtime as `+HH:MM` against the schedule end (naive org-local wall clock, matching Phase 2)
 
-## Billing
+## Billing (Phase 4 + Phase 9 Stripe)
 
-`BillingService` (`app/Services/BillingService.php`) is provider-agnostic: `provisionDefault`, `switchPlan`, `issueInvoice`, `ensureCanAddEmployee` (employee-count cap → validation error). A payment provider (Stripe etc.) plugs in later without touching callers. Routes are gated `settings.manage`.
+`BillingService` (`app/Services/BillingService.php`) is provider-agnostic: `provisionDefault`, `switchPlan`, `issueInvoice`, `ensureCanAddEmployee` (employee-count cap → validation error). Routes are gated `settings.manage`.
+
+**Phase 9 — Stripe** (raw Laravel HTTP client, NOT the `stripe/stripe-php` package — keeps `Http::fake` testable in tests):
+
+- `StripeService` (`app/Services/Billing/StripeService.php`) — `isConfigured()` (secret present), `checkoutUrl(org, plan)` (POST `/v1/checkout/sessions`, `mode: subscription`, success/cancel back to Billing), `verifyWebhookSignature(request)` (HMAC-SHA256 over the `t=…,v1=…` payload with 300s tolerance, raw body), `activateFromCheckout(session)` (activates the plan + subscription in place), `syncSubscription(sub)` (status + period + stripe ids), `markInvoicePaid(invoice)` (marks the open invoice paid via `Invoice::withoutGlobalScopes()` — the webhook has no session user, so the org global scope would 1=0), `ensureCustomer(org)`
+- Config: `services.stripe.secret` (`STRIPE_SECRET_KEY`), `services.stripe.webhook_secret` (`STRIPE_WEBHOOK_SECRET`); unconfigured → the checkout button hides and the webhook returns 503
+- `POST billing/stripe/checkout` (`settings.manage`) → redirect to Stripe Checkout; plan switching for free plans stays a direct in-app action
+- `POST api/stripe/webhook` — **unauthenticated** (throttled; `StripeWebhookController`): 400 on bad signature; handles `checkout.session.completed`, `customer.subscription.updated|deleted`, `invoice.paid`
+- `plans.stripe_price_id` (nullable) — the Stripe price for paid plans; `subscriptions.stripe_customer_id`/`stripe_subscription_id` + `organizations.settings.stripe_customer_id` track the Stripe objects; Billing page shows checkout success/canceled banners
 
 ## Overtime (Phase 5, §73)
 
@@ -127,5 +176,5 @@ GET  /api/v1/...          → auth:sanctum + EnsureApiOrganization + permission:
 ## Testing
 
 - `Tests\Concerns\CreatesOrganizations` helpers (`makeOrganization`, `makeUser`, …); `WorkforceDefaults::apply($org)` when a test needs a default schedule/leave types
-- Feature tests: tenancy isolation, RBAC allow/deny, employee CRUD, registration, auth (Volt), profile, attendance/leave/schedules, salary records + calculator + Statistics, payslips/revisions, reports (filters, CSV, permission gates), analytics, notifications, billing, API v1, audit filters, live attendance board, overtime detection/approvals/comp-time, attendance score engine, scoring settings, risk detection, monthly status snapshots, risk/statistics/dashboard wiring, Phase 6 statistics sections + overtime report + monthly score/status columns + analytics trend + dashboard score/[OT]/weekly-summary widgets, global search (RBAC sections, tenant isolation), leave attachments (upload/download visibility), Phase 7 payslip + monthly-status notifications, field-sync/audit/notification gap fixes, MANAGER_HR two-stage approval + EXPIRED expiry + monthly cap, positions admin UI (RBAC, audits, tenancy, employee-form round trip) (279 tests)
+- Feature tests: tenancy isolation, RBAC allow/deny, employee CRUD, registration, auth (Volt), profile, attendance/leave/schedules, salary records + calculator + Statistics, payslips/revisions, reports (filters, CSV, permission gates), analytics, notifications, billing, API v1, audit filters, live attendance board, overtime detection/approvals/comp-time, attendance score engine, scoring settings, risk detection, monthly status snapshots, risk/statistics/dashboard wiring, Phase 6 statistics sections + overtime report + monthly score/status columns + analytics trend + dashboard score/[OT]/weekly-summary widgets, global search (RBAC sections, tenant isolation), leave attachments (upload/download visibility), Phase 7 payslip + monthly-status notifications, field-sync/audit/notification gap fixes, MANAGER_HR two-stage approval + EXPIRED expiry + monthly cap, positions admin UI (RBAC, audits, tenancy, employee-form round trip), support tickets + password recovery (two-option forgot password, Gate::support.view, must-change-password banner lifecycle, admin/manager resets), Phase 8 MFA (TOTP setup/confirm/login-challenge/recovery-codes), API keys (auth, abilities, org scope, revocation), SCIM 2.0 (token auth, user CRUD, active=false delete, audits), webhooks (dispatch/sign/deliver, event filtering, SSRF guard), OIDC SSO (state check, domain allowlist, link vs auto-provision, login-page org list), role permission editor (validation, company_admin lock), audit CSV export (filters + gating), Phase 9 Stripe (checkout URL, webhook signature, checkout-completed activation, invoice paid) (**350 tests**)
 - `RefreshDatabase` + SQLite `:memory:`; each test class enables `RefreshDatabase` itself
