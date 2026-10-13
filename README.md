@@ -155,10 +155,14 @@ Open http://localhost:8000 — the entrypoint generates `APP_KEY`, caches config
 - **Hover drill-downs everywhere**: every admin dashboard stat card (present/late/absent/on-leave today, employee & user counts, department mix, score bands, at-risk, risk alerts, overtime today/pending/month) and every employee month tile (present/late/absent/leave days, balance by type) opens a hover panel listing the underlying rows — names, arrival times, late minutes, leave types, per-day lists — rendered server-side with an Alpine viewport clamp
 - **Profile photo & phone**: every user uploads a profile photo (JPG/PNG ≤ 2 MB, live preview, remove option) and a contact phone on the profile page; the photo is stored on the public disk and shown as an avatar (initials fallback) in the desktop user menu and the mobile nav; changes are audited (`profile.updated`)
 
+### Post-Phase 20 — Role-scoped profile editing
+- **Identity editors keep full control**: users with `employees.edit` (or platform admins) manage their own photo, phone, name and email on the profile page, exactly as before
+- **Employees get an emergency-contact card instead**: name/email/photo/phone are HR-managed; employees update their emergency contact (name + phone) on the profile page — it writes to their employee record (audited `profile.emergency_updated`), so admins immediately see it on the employee profile; 2FA, password and data export remain self-service for everyone
+
 ## Tests & checks
 
 ```bash
-php artisan test        # 456 tests
+php artisan test        # 462 tests
 composer format         # Pint code style (app tests routes database bootstrap resources)
 composer analyse        # Larastan level 5 (phpstan.neon + baseline)
 composer check          # format + analyse + test
