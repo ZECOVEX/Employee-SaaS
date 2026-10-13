@@ -270,6 +270,23 @@ User-requested: advanced admin dashboard with hover drill-downs on every stat ca
 
 Tests: **456 green** (10 new). pint clean, phpstan clean, assets built.
 
+## Post-Phase 19b — MFA QR code fix (shipped)
+
+User-reported: "2fa functions looks broked!" — two browser-only bugs in the 2FA setup card (no test ever rendered the QR path): `{!! $qrSvg() !!}` invoked a *variable function* (`Undefined variable $qrSvg`) instead of the component method, and `BaconQrCode\Renderer\ImageRenderer` was never imported — so clicking "Enable 2FA" 500'd before the QR appeared. Fixed both; regression test `test_mfa_setup_renders_the_qr_code` renders the setup state and asserts the SVG + secret.
+
+Tests: **457 green** (1 new, `MfaTest` → 12). pint clean, phpstan clean.
+
+## Post-Phase 20 — Role-scoped profile editing + emergency-contact sync (shipped)
+
+User-requested: "optimize the full profile edit options for everyone like user data re-edit, upload image, enable 2fa but for employee they can't upload/change image their personal infos, only can change their emergency contact, 2fa and make sure when employee change their emergency contact this will sync with the user database so admin can also saw this."
+
+- ✅ **Role branch on `PUT profile`** — `ProfileController::update` splits on the identity-edit gate (`is_platform_admin || employees.edit`, same as the profile identity lock): editors keep the Post-Phase 19 photo/phone path on their own `users` row; everyone else hits the new emergency-contact path, which **prohibits** `phone`/`avatar`/`avatar_remove` (422 on tamper) and writes `emergency_contact_name`/`emergency_contact_phone` (already-existing employee columns, `max:120`/`max:32`) to their linked employee record, audited as `profile.emergency_updated`. No linked employee record → friendly validation error.
+- ✅ **Profile page scoping** — one `@php` block computes `$canEditIdentity` + `$employeeProfile`; the "Photo & phone" card renders only for identity editors, and employees get an "Emergency contact" card instead (inputs bound to the employee row, blank-to-clear supported, hint that HR manages name/email/photo/phone and that admins see the contact on the employee profile); users with no employee record get a note instead of the form. 2FA, password, security info and export stay for everyone.
+- ✅ **Admin visibility (sync)** — the emergency contact lands on `employees`, which the admin employee form (`employees/form.blade.php` inputs) and employee show page already surface, so an employee's change is immediately visible/auditable in the admin employee database (`employee.updated` audits still cover admin edits).
+- ✅ **Tests** — `ProfilePhotoTest` reworked (11): editor photo/phone/remove/audit (4, roles switched from employee to company_admin — the old employee-role expectations are now forbidden), nav avatar URL, employee emergency save + audit + admin `employees.show` visibility, blank-to-clear, employee avatar/phone `prohibited` rejection, no-employee-record error, page card scoping (employee sees `ec-name` not `avatar-input`; admin the reverse), guest redirect.
+
+Tests: **462 green** (5 new, `ProfilePhotoTest` → 11). pint clean, phpstan clean, views cleared.
+
 ## Standing decisions (locked)
 
 | Decision | Choice |
