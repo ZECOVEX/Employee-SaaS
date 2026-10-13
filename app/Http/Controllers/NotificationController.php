@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Support\NotificationDestination;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Notifications\DatabaseNotification;
@@ -26,12 +27,20 @@ class NotificationController extends Controller
         ]);
     }
 
+    /**
+     * Clicking a notification marks it read and opens its destination
+     * (data.url, or a legacy-row fallback resolved by type) — falling
+     * back to the notification center when nothing resolves.
+     */
     public function markRead(Request $request, string $id): RedirectResponse
     {
         $notification = $this->find($request, $id);
         $notification->markAsRead();
 
-        return back()->with('status', 'Notification marked as read.');
+        $url = NotificationDestination::for($notification);
+
+        return redirect($url ?? route('notifications.index'))
+            ->with('status', 'Notification marked as read.');
     }
 
     public function markAllRead(Request $request): RedirectResponse

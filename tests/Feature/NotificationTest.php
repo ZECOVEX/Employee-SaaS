@@ -11,6 +11,7 @@ use App\Models\Organization;
 use App\Models\User;
 use App\Notifications\AttendanceCorrected;
 use App\Notifications\LateArrival;
+use App\Notifications\LeaveNoticeAdded;
 use App\Notifications\LeaveStatusChanged;
 use App\Notifications\NfcCardStatusChanged;
 use App\Notifications\PasswordChanged;
@@ -21,6 +22,7 @@ use App\Services\WorkforceDefaults;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Str;
 use Livewire\Volt\Volt;
 use Tests\Concerns\CreatesOrganizations;
 use Tests\TestCase;
@@ -275,6 +277,21 @@ class NotificationTest extends TestCase
         $this->assertSame(0, $user->notifications()->whereNull('read_at')->count());
     }
 
+    public function test_notification_ui_uses_a_suitable_layout(): void
+    {
+        [, $admin] = $this->bootNotifications('NotifyLayout');
+
+        $response = $this->actingAs($admin)->get(route('notifications.index'));
+
+        $response->assertOk()
+            ->assertSee('max-w-7xl mx-auto sm:px-6 lg:px-8');
+
+        $this->assertMatchesRegularExpression(
+            '/class="absolute z-50 mt-2 w-80 rounded-md shadow-lg/',
+            $response->getContent()
+        );
+    }
+
     public function test_notifications_are_scoped_to_the_recipient(): void
     {
         [, $admin, $user, $employee] = $this->bootNotifications('NotifyScope');
@@ -304,6 +321,90 @@ class NotificationTest extends TestCase
             ->assertNotFound();
 
         $this->assertNull($user->notifications()->whereKey($id)->first()->read_at);
+    }
+
+    public function test_clicking_a_notification_marks_it_read_and_opens_its_destination(): void
+    {
+        [, , $user] = $this->bootNotifications('NotifyClick');
+
+        $user->notify(new LeaveNoticeAdded(42, 'Annual Leave', 'Admin User', 'Bring the certificate.'));
+
+        $notification = $user->notifications()->firstOrFail();
+        $this->assertSame(route('leave.show', 42), $notification->data['url']);
+
+        $this->actingAs($user)
+            ->get(route('notifications.read', $notification->id))
+            ->assertRedirect(route('leave.show', 42));
+
+        $this->assertNotNull($user->notifications()->whereKey($notification->id)->first()->read_at);
+    }
+
+    public function test_notification_without_a_destination_falls_back_to_the_center(): void
+    {
+        [, , $user] = $this->bootNotifications('NotifyNoUrl');
+
+        // Legacy row written before data.url existed.
+        $id = (string) Str::uuid();
+        $user->notifications()->create([
+            'id' => $id,
+            'type' => 'legacy.Notification',
+            'data' => ['title' => 'Old style', 'body' => 'No url key', 'group' => 'leave'],
+        ]);
+
+        $this->actingAs($user)
+            ->get(route('notifications.read', $id))
+            ->assertRedirect(route('notifications.index'));
+
+        $this->assertNotNull($user->notifications()->whereKey($id)->first()->read_at);
+    }
+
+    public function test_legacy_rows_resolve_their_destination_by_type(): void
+    {
+        [, , $user, $employee] = $this->bootNotifications('NotifyLegacy');
+
+        $cases = [
+            [PasswordChanged::class, route('profile')],
+            [SalaryUpdated::class, route('statistics.index')],
+            [LateArrival::class, route('attendance.employee', $employee->id)],
+        ];
+
+        foreach ($cases as [$type, $expected]) {
+            $id = (string) Str::uuid();
+            $user->notifications()->create([
+                'id' => $id,
+                'type' => $type,
+                'data' => ['title' => 'Legacy', 'body' => 'old row', 'group' => 'general'],
+            ]);
+
+            $this->actingAs($user)
+                ->get(route('notifications.read', $id))
+                ->assertRedirect($expected);
+        }
+    }
+
+    public function test_notification_rows_and_bell_items_are_clickable_links(): void
+    {
+        [, $admin, $user, $employee] = $this->bootNotifications('NotifyLinks');
+
+        $this->actingAs($admin)
+            ->post(route('salary.store', $employee), [
+                'basic_salary' => 30000,
+                'effective_from' => '2026-11-01',
+            ]);
+
+        $id = $user->notifications()->firstOrFail()->id;
+
+        // The center renders each row as a link to the mark-read endpoint.
+        $this->actingAs($user)
+            ->get(route('notifications.index'))
+            ->assertOk()
+            ->assertSee(route('notifications.read', $id), false);
+
+        // The bell dropdown renders each item as a link too.
+        $this->actingAs($user)
+            ->get(route('dashboard.employee'))
+            ->assertOk()
+            ->assertSee(route('notifications.read', $id), false);
     }
 
     public function test_notification_emails_use_the_shared_template(): void

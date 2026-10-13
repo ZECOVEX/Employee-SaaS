@@ -13,6 +13,7 @@ use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\LeaveController;
 use App\Http\Controllers\LiveAttendanceController;
+use App\Http\Controllers\MailSettingsController;
 use App\Http\Controllers\NfcCardController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OvertimeController;
@@ -165,6 +166,14 @@ Route::middleware(['auth', 'verified', 'organization', 'company'])
         Route::post('settings/sso/test', [SsoSettingsController::class, 'test'])
             ->name('sso.test');
 
+        // Post-Phase 17 — per-org outgoing email (SMTP) settings (settings.manage).
+        Route::get('settings/email', [MailSettingsController::class, 'edit'])
+            ->name('mail-settings.edit');
+        Route::put('settings/email', [MailSettingsController::class, 'update'])
+            ->name('mail-settings.update');
+        Route::post('settings/email/test', [MailSettingsController::class, 'test'])
+            ->name('mail-settings.test');
+
         // Phase 8 — advanced permissions: role editor (users.manage).
         Route::get('roles', [RolePermissionController::class, 'index'])
             ->name('roles.index');
@@ -270,6 +279,13 @@ Route::middleware(['auth', 'verified', 'organization', 'company'])
         // attendance.view.
         Route::get('attendance/employee/{employee}', [AttendanceController::class, 'employee'])
             ->name('attendance.employee');
+        // Self-report fallback for a broken NFC terminal: no permission
+        // middleware (the controller only ever acts on the user's own
+        // employee record) + a light throttle; one report per direction
+        // per day, immutable afterwards.
+        Route::post('attendance/self-report', [AttendanceController::class, 'selfReport'])
+            ->middleware('throttle:6,1')
+            ->name('attendance.selfReport');
 
         // Phase 3 — compensation: effective-dated salary records (§28).
         Route::get('salary', [SalaryController::class, 'index'])
@@ -340,11 +356,23 @@ Route::middleware(['auth', 'verified', 'organization', 'company'])
         Route::post('leave/{leaveRequest}/reject', [LeaveController::class, 'reject'])
             ->middleware('permission:leave.approve')
             ->name('leave.reject');
+        Route::post('leave/{leaveRequest}/notice', [LeaveController::class, 'addNotice'])
+            ->middleware('permission:leave.approve')
+            ->name('leave.notice');
         Route::post('leave/{leaveRequest}/cancel', [LeaveController::class, 'cancel'])
             ->name('leave.cancel');
+        Route::get('leave/{leaveRequest}/edit', [LeaveController::class, 'edit'])
+            ->middleware('permission:leave.approve')
+            ->name('leave.edit');
+        Route::put('leave/{leaveRequest}', [LeaveController::class, 'update'])
+            ->middleware('permission:leave.approve')
+            ->name('leave.update');
         Route::get('leave/{leaveRequest}/attachment', [LeaveController::class, 'attachment'])
             ->middleware('permission:leave.view')
             ->name('leave.attachment');
+        Route::get('leave/{leaveRequest}', [LeaveController::class, 'show'])
+            ->middleware('permission:leave.view')
+            ->name('leave.show');
 
         Route::get('nfc-cards', [NfcCardController::class, 'index'])
             ->middleware('permission:nfc.view')
@@ -385,6 +413,9 @@ Route::middleware(['auth', 'verified', 'organization', 'company'])
         // §43 — self-service data export (JSON download of own account data).
         Route::get('profile/export', [ProfileController::class, 'export'])
             ->name('profile.export');
+        // Post-Phase 19 — profile customization: avatar upload + contact phone.
+        Route::put('profile', [ProfileController::class, 'update'])
+            ->name('profile.update');
     });
 
 // §43 — privacy policy (public, no auth): discloses IP-derived location

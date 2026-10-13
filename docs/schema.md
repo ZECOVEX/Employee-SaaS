@@ -6,7 +6,7 @@ All tenant tables carry `organization_id` (FK → organizations, cascade delete)
 | Column | Notes |
 |---|---|
 | id, name, slug (unique), timezone, status (`active`/`suspended`), timestamps | Tenancy root |
-| settings (json, nullable) | Per-org knobs: `debounce_seconds` (punch debounce window, 5–300, default 15), `time_format` (`24h` default → 16:00 / `12h` → 4:00 PM; drives every clock display via `Organization::formatTime()` and the `<x-time>` component), plus salary rules (`currency`, `late_deduction` `per_minute`/`none`, `deduction_grace_minutes` 0–240, `deduction_rounding` `exact`/`nearest`/`whole`, `absence_deduction` `full_day`/`half_day`/`none`, `half_day_deduction`, `unpaid_leave_deduction` bool, `max_deduction_percent` 0–100 — defaults in `Organization::salaryRules()`) |
+| settings (json, nullable) | Per-org knobs: `debounce_seconds` (punch debounce window, 5–300, default 15), `time_format` (`24h` default → 16:00 / `12h` → 4:00 PM; drives every clock display via `Organization::formatTime()` and the `<x-time>` component), `self_attendance_enabled` (bool, default false — employee self-report fallback when the NFC terminal is down; see `Organization::selfAttendanceEnabled()`), plus salary rules (`currency`, `late_deduction` `per_minute`/`none`, `deduction_grace_minutes` 0–240, `deduction_rounding` `exact`/`nearest`/`whole`, `absence_deduction` `full_day`/`half_day`/`none`, `half_day_deduction`, `unpaid_leave_deduction` bool, `max_deduction_percent` 0–100 — defaults in `Organization::salaryRules()`) |
 
 ## users (tenant-scoped but NO global scope)
 | Column | Notes |
@@ -42,8 +42,9 @@ All tenant tables carry `organization_id` (FK → organizations, cascade delete)
 - **attendance_events** — `organization_id`, `employee_id`, `terminal_id` (nullable), `nfc_card_id` (nullable), `event_type` (`check_in`/`check_out`/`break_start`/`break_end`/`manual_in`/`manual_out`), `occurred_at`, `timezone`, `source` (`nfc`/`manual`/`api`), `notes`, `created_by`, `superseded_by` (nullable self-FK), `deleted_at` (soft delete) — source of truth; raw rows are never overwritten: an admin correction (§24) creates a replacement event and points the original at it via `superseded_by`, removals are soft-deleted, and derivation/punching only reads active rows (`superseded_by IS NULL AND deleted_at IS NULL`); `occurred_at` + `timezone` hold the **org-local wall-clock as entered/tapped** (no instant conversion — derivation and display compare/format these wall times directly, so UTC+6 orgs never see a +6h shift); daily rows are derived from these
 - **daily_attendance** — table name is singular by spec; `organization_id`, `employee_id`, `date` (stored `Y-m-d` via `date:Y-m-d` cast), `first_check_in`, `last_check_out`, `total_work_minutes` (sum of IN→OUT segments, gap-aware break deduction — not first-in→last-out), `late_minutes`, `early_leave_minutes`, `overtime_minutes`, `segment_count` (completed segments that day), `review_flag` (nullable: `possible_missed_checkin` / `excessive_segments`), `status` (`PRESENT`/`LATE`/`ABSENT`/`HALF_DAY`/`LEAVE`/`HOLIDAY`/`WEEKEND`/`REMOTE`), `is_manual`
 - **leave_types** — `organization_id`, `name`, `code`, `default_days_per_year`, `is_paid`, `is_active`
-- **leave_requests** — `organization_id`, `employee_id`, `leave_type_id`, `start_date`, `end_date`, `days`, `reason`, `status` (`pending`/`approved`/`rejected`/`cancelled`), `reviewed_by`, `review_note`
+- **leave_requests** — `organization_id`, `employee_id`, `leave_type_id`, `start_date`, `end_date`, `days`, `reason`, `status` (`PENDING`/`APPROVED`/`REJECTED`/`CANCELLED`), `reviewed_by`, `reviewed_at`, `review_note` — review is re-editable (Post-Phase 12): approvers may approve/reject any number of times (`CANCELLED` is terminal); reject-after-approve refunds `leave_balances.used_days` (clamped at 0) and deletes the LEAVE `daily_attendance` rows that carry no check-in; Post-Phase 13: reviewers may edit type/dates/reason at any time (incl. after approval — approved edits refund + re-deduct across type/year buckets and move the LEAVE stamps, `days` recomputed from the range, `leave.edited` audit)
 - **leave_balances** — `organization_id`, `employee_id`, `leave_type_id`, `year`, `total_days`, `used_days` — unique (`employee_id`, `leave_type_id`, `year`)
+- **leave_notices** — Post-Phase 12: `organization_id`, `leave_request_id` (FK, cascade), `user_id` (author, FK cascade), `body` (text), timestamps — append-only notice thread on a leave request; every notice is visible to the requesting employee on the leave show page (index (`organization_id`, `leave_request_id`))
 
 Defaults seeded per org by `WorkforceDefaults::apply()`: Standard schedule (Mon–Fri 09:00–18:00, 15 min grace) and 5 leave types (ANNUAL 20, SICK 10, CASUAL 10, EMERGENCY 5, UNPAID 0).
 
@@ -77,6 +78,8 @@ Defaults seeded per org by `WorkforceDefaults::apply()`: Standard schedule (Mon�
 
 `organizations.settings` (Phase 8 keys) — `sso_enabled` (bool), `sso_name`, `sso_discovery_url` (OIDC discovery base), `sso_client_id`, `sso_client_secret` (stored `encrypt()`ed), `sso_allowed_domains` (array of email domains allowed to authenticate via SSO)
 
+`organizations.settings` (Post-Phase 17 keys) — `mail_enabled` (bool), `mail_host`, `mail_port` (int), `mail_encryption` (`tls` | `ssl` | `none`), `mail_username`, `mail_password` (stored `encrypt()`ed), `mail_from_address`, `mail_from_name`, `mail_features` (Post-Phase 18 — array of enabled email feature keys, `MailSettings::FEATURES`; key absent = all features on, empty array = none) — per-org outgoing SMTP, applied to every mail-channel send by `MailSettings::apply()`, with `mail_features` gating the channel in the `NotificationSending` listener
+
 Migrations: `2026_10_11_120000_create_api_tables`, `2026_10_11_120001_create_webhook_subscriptions_table`, `2026_10_11_120002_add_mfa_to_users_table`, `2026_10_11_120003_add_stripe_columns`.
 
 ## Phase 10 — Privacy, geo-login & terminal geo tables
@@ -88,6 +91,11 @@ Migrations: `2026_10_11_120000_create_api_tables`, `2026_10_11_120001_create_web
 `organizations.settings` (Phase 10 keys) — `audit_retention_days` (int nullable, 0/null = platform default 365), `login_retention_days` (int nullable, 0/null = platform default 180).
 
 Migrations: `2026_10_12_120000_create_user_login_history_table`, `2026_10_12_120001_add_deactivated_at_to_users_table`, `2026_10_12_120002_add_geo_security_to_attendance_terminals_table`.
+
+## Post-Phase 19 — Profile photo & phone
+- **users** (Post-Phase 19 additions) — `avatar_path` (nullable; `image|max:2048` upload stored on the `public` disk under `avatars/`, old file deleted on replace/remove via `avatar_remove`), `phone` (nullable, 30)
+
+Migration: `2026_10_13_000000_add_avatar_phone_to_users_table`.
 
 ## Phase 6 — No schema changes
 

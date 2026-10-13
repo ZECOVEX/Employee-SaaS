@@ -15,6 +15,7 @@ use App\Notifications\LateArrival;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class AttendanceService
 {
@@ -161,6 +162,74 @@ class AttendanceService
     }
 
     /**
+     * Record an employee self-reported attendance event (terminal-down
+     * fallback).
+     *
+     * Rules: today only (org timezone), at most ONE self-reported IN and
+     * ONE self-reported OUT per employee per day, and a self-reported
+     * entry is never editable from the employee side afterwards — the
+     * only remaining path is the audited admin correction workflow.
+     *
+     * @param  string  $direction  'in' | 'out'
+     * @return array{event: AttendanceEvent, daily: DailyAttendance}
+     *
+     * @throws ValidationException when the direction
+     *                             was already self-reported today (double submit / race).
+     */
+    public function recordSelfReport(
+        Employee $employee,
+        string $direction,
+        Carbon $occurredAt,
+        int $actorId,
+    ): array {
+        $org = $employee->organization;
+        $tz = $org?->timezone ?? 'UTC';
+        $date = $occurredAt->copy()->timezone($tz)->toDateString();
+
+        $eventType = $direction === 'out'
+            ? AttendanceEvent::MANUAL_OUT
+            : AttendanceEvent::MANUAL_IN;
+
+        return DB::transaction(function () use ($employee, $eventType, $direction, $occurredAt, $actorId, $date, $tz) {
+            // Lock the day's active events so a double-clicked submit (or
+            // two parallel tabs) cannot both pass the once-per-day guard.
+            $alreadySelfReported = AttendanceEvent::withoutGlobalScopes()
+                ->where('employee_id', $employee->id)
+                ->whereNull('superseded_by')
+                ->whereNull('deleted_at')
+                ->where('source', 'self')
+                ->whereDate('occurred_at', $date)
+                ->where('event_type', $eventType)
+                ->lockForUpdate()
+                ->exists();
+
+            if ($alreadySelfReported) {
+                throw ValidationException::withMessages([
+                    'time' => $direction === 'out'
+                        ? 'You have already self-reported your check-out for today. Contact an administrator if this is wrong.'
+                        : 'You have already self-reported your check-in for today. Contact an administrator if this is wrong.',
+                ]);
+            }
+
+            $event = AttendanceEvent::create([
+                'organization_id' => $employee->organization_id,
+                'employee_id' => $employee->id,
+                'event_type' => $eventType,
+                'occurred_at' => $occurredAt,
+                'timezone' => $tz,
+                'ip_address' => request()->ip(),
+                'source' => 'self',
+                'notes' => 'Self-reported by employee (terminal fallback)',
+                'created_by' => $actorId,
+            ]);
+
+            $daily = $this->deriveDaily($employee, $date, isManual: true);
+
+            return ['event' => $event, 'daily' => $daily];
+        });
+    }
+
+    /**
      * Replace an existing entry with a corrected version (§24).
      *
      * The original row is never overwritten — it is archived via superseded_by
@@ -246,7 +315,7 @@ class AttendanceService
     public function deriveDaily(Employee $employee, string $date, bool $isManual = false): DailyAttendance
     {
         $org = $employee->organization;
-        $tz = $org?->timezone ?? 'UTC';
+        $tz = $org->timezone;
 
         $events = $this->activeEvents()
             ->where('organization_id', $employee->organization_id)

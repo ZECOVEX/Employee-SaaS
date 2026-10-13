@@ -171,4 +171,19 @@ class MfaTest extends TestCase
             ->assertOk()
             ->assertSee('Two-factor authentication');
     }
+
+    public function test_mfa_setup_renders_the_qr_code(): void
+    {
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
+        $user = $this->makeUser($org, 'company_admin', $roles);
+
+        $this->actingAs($user);
+
+        $component = Volt::test('profile.mfa-form')
+            ->call('startSetup')
+            ->assertSee('Authentication code')
+            ->assertSee('<svg', false);
+
+        $this->assertNotEmpty($component->get('secret'));
+    }
 }

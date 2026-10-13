@@ -6,9 +6,13 @@ namespace App\Services;
 
 use App\Models\DailyAttendance;
 use App\Models\Employee;
+use App\Models\EmployeeMonthlyStatus;
 use App\Models\Holiday;
+use App\Models\LeaveRequest;
+use App\Models\LeaveType;
 use App\Models\OvertimeRecord;
 use App\Models\Payslip;
+use App\Models\RiskEvent;
 use App\Models\WorkSchedule;
 use Carbon\Carbon;
 
@@ -242,7 +246,8 @@ class ReportService
 
     /**
      * Analytics payload for the dashboard: attendance trend, department
-     * comparison, weekday late pattern and payroll progress.
+     * comparison, weekday late pattern, payroll progress plus workforce
+     * mix, leave analytics, status distribution, workload, scores and risk.
      *
      * @return array<string, mixed>
      */
@@ -261,6 +266,12 @@ class ReportService
             'payroll' => $this->payrollTrend($organizationId, 6),
             'overtime' => $this->overtimeTrend($organizationId, 6),
             'active_employees' => $activeEmployees,
+            'workforce' => $this->workforceMix($organizationId),
+            'leave' => $this->leaveStats($organizationId),
+            'status_distribution' => $this->attendanceStatusDistribution($organizationId),
+            'workload' => $this->workloadStats($organizationId, $ledger),
+            'scores' => $this->scoreDistribution($organizationId),
+            'risk' => $this->riskSummary($organizationId),
         ];
     }
 
@@ -476,5 +487,326 @@ class ReportService
         }
 
         return $result;
+    }
+
+    /**
+     * Workforce composition: employment-type and status mix plus joiners
+     * in the last 30 days.
+     *
+     * @return array{employment: list<array{label: string, count: int}>, status: list<array{label: string, count: int, tone: string}>, joiners_30d: int, total: int}
+     */
+    private function workforceMix(int $organizationId): array
+    {
+        $employees = Employee::withoutGlobalScopes()
+            ->where('organization_id', $organizationId)
+            ->get(['status', 'employment_type', 'joining_date']);
+
+        $employmentLabels = ['full_time' => 'Full-time', 'part_time' => 'Part-time', 'contract' => 'Contract', 'intern' => 'Intern'];
+        $statusLabels = ['active' => ['Active', 'emerald'], 'inactive' => ['Inactive', 'amber'], 'terminated' => ['Terminated', 'red']];
+        $employment = [];
+        $statuses = [];
+        $cutoff = Carbon::now()->subDays(30)->toDateString();
+        $joiners = 0;
+
+        foreach ($employees as $employee) {
+            $type = (string) $employee->employment_type;
+            $employment[$type] = ($employment[$type] ?? 0) + 1;
+            $status = (string) $employee->status;
+            $statuses[$status] = ($statuses[$status] ?? 0) + 1;
+
+            if (Carbon::parse($employee->joining_date)->toDateString() >= $cutoff) {
+                $joiners++;
+            }
+        }
+
+        $employmentRows = [];
+        foreach ($employmentLabels as $key => $label) {
+            if (($employment[$key] ?? 0) > 0) {
+                $employmentRows[] = ['label' => $label, 'count' => $employment[$key]];
+            }
+        }
+        foreach ($employment as $key => $count) {
+            if (! array_key_exists($key, $employmentLabels)) {
+                $employmentRows[] = ['label' => str_replace('_', ' ', ucfirst((string) $key)), 'count' => $count];
+            }
+        }
+
+        $statusRows = [];
+        foreach ($statusLabels as $key => [$label, $tone]) {
+            if (($statuses[$key] ?? 0) > 0) {
+                $statusRows[] = ['label' => $label, 'count' => $statuses[$key], 'tone' => $tone];
+            }
+        }
+        foreach ($statuses as $key => $count) {
+            if (! array_key_exists($key, $statusLabels)) {
+                $statusRows[] = ['label' => ucfirst((string) $key), 'count' => $count, 'tone' => 'gray'];
+            }
+        }
+
+        return [
+            'employment' => $employmentRows,
+            'status' => $statusRows,
+            'joiners_30d' => $joiners,
+            'total' => $employees->count(),
+        ];
+    }
+
+    /**
+     * Leave analytics: 6-month request volumes by status, approved days
+     * by leave type this year, and the open approval queue.
+     *
+     * @return array{months: list<array{month: string, label: string, approved: int, pending: int, rejected: int}>, types: list<array{name: string, days: int}>, pending: int, approved_days_month: int}
+     */
+    private function leaveStats(int $organizationId): array
+    {
+        $monthStart = Carbon::now()->startOfMonth();
+        $requests = LeaveRequest::withoutGlobalScopes()
+            ->where('organization_id', $organizationId)
+            ->whereDate('start_date', '>=', $monthStart->copy()->subMonths(5)->toDateString())
+            ->get(['start_date', 'status', 'days', 'leave_type_id']);
+
+        $months = [];
+        $cursor = $monthStart->copy()->subMonths(5);
+        for ($i = 0; $i < 6; $i++) {
+            $months[$cursor->format('Y-m')] = [
+                'month' => $cursor->format('Y-m'),
+                'label' => $cursor->format('M y'),
+                'approved' => 0,
+                'pending' => 0,
+                'rejected' => 0,
+            ];
+            $cursor->addMonthNoOverflow();
+        }
+
+        $currentMonthStart = $monthStart->toDateString();
+        $currentMonthEnd = Carbon::now()->endOfMonth()->toDateString();
+        $approvedDaysMonth = 0;
+
+        foreach ($requests as $request) {
+            $start = Carbon::parse($request->start_date);
+            $bucket = match ((string) $request->status) {
+                LeaveRequest::APPROVED => 'approved',
+                LeaveRequest::PENDING => 'pending',
+                LeaveRequest::REJECTED => 'rejected',
+                default => null,
+            };
+
+            $key = $start->format('Y-m');
+            if ($bucket !== null && isset($months[$key])) {
+                $months[$key][$bucket]++;
+            }
+
+            if ($bucket === 'approved' && $start->toDateString() >= $currentMonthStart && $start->toDateString() <= $currentMonthEnd) {
+                $approvedDaysMonth += (int) $request->days;
+            }
+        }
+
+        $typeNames = LeaveType::withoutGlobalScopes()
+            ->where('organization_id', $organizationId)
+            ->pluck('name', 'id');
+
+        $daysByType = [];
+        LeaveRequest::withoutGlobalScopes()
+            ->where('organization_id', $organizationId)
+            ->where('status', LeaveRequest::APPROVED)
+            ->whereBetween('start_date', [
+                Carbon::now()->startOfYear()->toDateString(),
+                Carbon::now()->endOfYear()->toDateString(),
+            ])
+            ->get(['days', 'leave_type_id'])
+            ->each(function (LeaveRequest $request) use (&$daysByType, $typeNames) {
+                $id = (int) $request->leave_type_id;
+                $name = (string) ($typeNames[$id] ?? 'Other');
+                $daysByType[$name] = ($daysByType[$name] ?? 0) + (int) $request->days;
+            });
+
+        $types = [];
+        foreach ($daysByType as $name => $days) {
+            $types[] = ['name' => $name, 'days' => $days];
+        }
+        usort($types, fn (array $a, array $b) => $b['days'] <=> $a['days']);
+
+        return [
+            'months' => array_values($months),
+            'types' => $types,
+            'pending' => LeaveRequest::withoutGlobalScopes()
+                ->where('organization_id', $organizationId)
+                ->where('status', LeaveRequest::PENDING)
+                ->count(),
+            'approved_days_month' => $approvedDaysMonth,
+        ];
+    }
+
+    /**
+     * Current-month daily attendance mix by status (row counts).
+     *
+     * @return list<array{label: string, count: int, color: string}>
+     */
+    private function attendanceStatusDistribution(int $organizationId): array
+    {
+        $map = [
+            'PRESENT' => ['Present', 'bg-emerald-500'],
+            'LATE' => ['Late', 'bg-amber-400'],
+            'REMOTE' => ['Remote', 'bg-sky-500'],
+            'HALF_DAY' => ['Half day', 'bg-indigo-400'],
+            'LEAVE' => ['On leave', 'bg-purple-500'],
+            'ABSENT' => ['Absent', 'bg-red-400'],
+            'HOLIDAY' => ['Holiday', 'bg-gray-400'],
+            'WEEKEND' => ['Weekend', 'bg-gray-300'],
+        ];
+
+        $counts = [];
+        DailyAttendance::withoutGlobalScopes()
+            ->where('organization_id', $organizationId)
+            ->whereDate('date', '>=', Carbon::now()->startOfMonth()->toDateString())
+            ->whereDate('date', '<=', Carbon::now()->endOfMonth()->toDateString())
+            ->get(['status'])
+            ->each(function (DailyAttendance $row) use (&$counts) {
+                $status = (string) $row->status;
+                $counts[$status] = ($counts[$status] ?? 0) + 1;
+            });
+
+        $result = [];
+        foreach ($map as $status => [$label, $color]) {
+            if (($counts[$status] ?? 0) > 0) {
+                $result[] = ['label' => $label, 'count' => $counts[$status], 'color' => $color];
+            }
+        }
+        foreach ($counts as $status => $count) {
+            if (! isset($map[$status])) {
+                $result[] = [
+                    'label' => str_replace('_', ' ', ucfirst(strtolower((string) $status))),
+                    'count' => $count,
+                    'color' => 'bg-gray-400',
+                ];
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Worked vs scheduled minutes for the current month over elapsed
+     * scheduled days (same ledger as the department stats).
+     *
+     * @param  array<string, true>  $ledger
+     * @return array{worked_minutes: int, expected_minutes: int, rate: float}
+     */
+    private function workloadStats(int $organizationId, array $ledger): array
+    {
+        $today = Carbon::now()->toDateString();
+        $expected = 0;
+
+        foreach (array_keys($ledger) as $date) {
+            if ($date > $today) {
+                continue;
+            }
+            $expected += $this->scheduleExpectedMinutes(WorkSchedule::effectiveFor($organizationId, $date));
+        }
+
+        $worked = (int) DailyAttendance::withoutGlobalScopes()
+            ->where('organization_id', $organizationId)
+            ->whereDate('date', '>=', Carbon::now()->startOfMonth()->toDateString())
+            ->whereDate('date', '<=', Carbon::now()->endOfMonth()->toDateString())
+            ->sum('total_work_minutes');
+
+        return [
+            'worked_minutes' => $worked,
+            'expected_minutes' => $expected,
+            'rate' => $expected > 0 ? round(min(100.0, $worked / $expected * 100), 1) : 0.0,
+        ];
+    }
+
+    /**
+     * Attendance-score bands for the latest finalized month (empty until
+     * the first monthly status run).
+     *
+     * @return array{label: ?string, avg: ?float, total: int, bands: list<array{label: string, count: int, color: string}>}
+     */
+    private function scoreDistribution(int $organizationId): array
+    {
+        $latest = EmployeeMonthlyStatus::withoutGlobalScopes()
+            ->where('organization_id', $organizationId)
+            ->orderByDesc('year')
+            ->orderByDesc('month')
+            ->first(['year', 'month']);
+
+        if ($latest === null) {
+            return ['label' => null, 'avg' => null, 'total' => 0, 'bands' => []];
+        }
+
+        $bands = [
+            ['label' => 'Excellent (90+)', 'count' => 0, 'color' => 'bg-emerald-500'],
+            ['label' => 'Good (75-89)', 'count' => 0, 'color' => 'bg-sky-500'],
+            ['label' => 'Average (60-74)', 'count' => 0, 'color' => 'bg-amber-400'],
+            ['label' => 'Needs attention (<60)', 'count' => 0, 'color' => 'bg-red-400'],
+        ];
+
+        $total = 0;
+        $sum = 0.0;
+        EmployeeMonthlyStatus::withoutGlobalScopes()
+            ->where('organization_id', $organizationId)
+            ->where('year', $latest->year)
+            ->where('month', $latest->month)
+            ->pluck('attendance_score')
+            ->each(function ($score) use (&$bands, &$total, &$sum) {
+                $value = (float) $score;
+                $sum += $value;
+                $total++;
+
+                if ($value >= 90) {
+                    $bands[0]['count']++;
+                } elseif ($value >= 75) {
+                    $bands[1]['count']++;
+                } elseif ($value >= 60) {
+                    $bands[2]['count']++;
+                } else {
+                    $bands[3]['count']++;
+                }
+            });
+
+        return [
+            'label' => $latest->periodLabel(),
+            'avg' => $total > 0 ? round($sum / $total, 1) : null,
+            'total' => $total,
+            'bands' => $bands,
+        ];
+    }
+
+    /**
+     * Open risk events (window still current) grouped by type and level.
+     *
+     * @return array{total: int, by_type: list<array{label: string, count: int}>, by_level: list<array{label: string, count: int}>}
+     */
+    private function riskSummary(int $organizationId): array
+    {
+        $events = RiskEvent::withoutGlobalScopes()
+            ->where('organization_id', $organizationId)
+            ->whereDate('period_end', '>=', Carbon::now()->toDateString())
+            ->get(['type', 'level']);
+
+        $byType = [];
+        $byLevel = [];
+
+        foreach ($events as $event) {
+            $typeLabel = $event->typeLabel();
+            $byType[$typeLabel] = ($byType[$typeLabel] ?? 0) + 1;
+            $level = (string) $event->level;
+            $byLevel[$level] = ($byLevel[$level] ?? 0) + 1;
+        }
+
+        $typeRows = [];
+        foreach ($byType as $label => $count) {
+            $typeRows[] = ['label' => $label, 'count' => $count];
+        }
+        usort($typeRows, fn (array $a, array $b) => $b['count'] <=> $a['count']);
+
+        $levelRows = [];
+        foreach ($byLevel as $label => $count) {
+            $levelRows[] = ['label' => $label, 'count' => $count];
+        }
+        usort($levelRows, fn (array $a, array $b) => $b['count'] <=> $a['count']);
+
+        return ['total' => $events->count(), 'by_type' => $typeRows, 'by_level' => $levelRows];
     }
 }

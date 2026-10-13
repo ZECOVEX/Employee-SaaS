@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Resources;
 
+use App\Support\NotificationDestination;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -19,6 +20,7 @@ class NotificationResource extends JsonResource
             'title' => $this->data['title'] ?? null,
             'body' => $this->data['body'] ?? null,
             'group' => $this->data['group'] ?? null,
+            'url' => NotificationDestination::for($this->resource),
             'read_at' => $this->read_at?->toIso8601String(),
             'created_at' => $this->created_at?->toIso8601String(),
         ];

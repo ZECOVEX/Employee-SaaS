@@ -52,6 +52,9 @@ class SettingsController extends Controller
             // §43 — data retention windows (days); 0 = use the platform default.
             'audit_retention_days' => ['sometimes', 'integer', 'min:0', 'max:3650'],
             'login_retention_days' => ['sometimes', 'integer', 'min:0', 'max:3650'],
+
+            // Self-report attendance fallback (terminal-down alternative).
+            'self_attendance_enabled' => ['sometimes', Rule::in(['0', '1'])],
         ]);
 
         $salaryKeys = [
@@ -60,6 +63,8 @@ class SettingsController extends Controller
         ];
 
         $retentionKeys = ['audit_retention_days', 'login_retention_days'];
+
+        $attendanceKeys = ['self_attendance_enabled'];
 
         $old = [
             'name' => $organization->name,
@@ -77,6 +82,12 @@ class SettingsController extends Controller
         }
 
         foreach ($retentionKeys as $key) {
+            if (array_key_exists($key, $data)) {
+                $old[$key] = ($organization->settings ?? [])[$key] ?? null;
+            }
+        }
+
+        foreach ($attendanceKeys as $key) {
             if (array_key_exists($key, $data)) {
                 $old[$key] = ($organization->settings ?? [])[$key] ?? null;
             }
@@ -116,6 +127,18 @@ class SettingsController extends Controller
             $retentionChanges[$key] = $value;
         }
 
+        $attendanceChanges = [];
+
+        foreach ($attendanceKeys as $key) {
+            if (! array_key_exists($key, $data)) {
+                continue;
+            }
+
+            $value = $data[$key] === '1';
+            $settings[$key] = $value;
+            $attendanceChanges[$key] = $value;
+        }
+
         $organization->update([
             'name' => $data['name'],
             'timezone' => $data['timezone'],
@@ -129,6 +152,7 @@ class SettingsController extends Controller
             'time_format' => $data['time_format'],
             ...$salaryChanges,
             ...$retentionChanges,
+            ...$attendanceChanges,
         ]);
 
         return redirect()

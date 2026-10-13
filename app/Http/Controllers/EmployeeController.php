@@ -15,6 +15,7 @@ use App\Models\Role;
 use App\Models\SalaryRecord;
 use App\Models\User;
 use App\Models\UserLoginHistory;
+use App\Notifications\EmploymentStatusChanged;
 use App\Notifications\PasswordChangeRequired;
 use App\Services\AuditLogger;
 use App\Services\BillingService;
@@ -386,6 +387,14 @@ class EmployeeController extends Controller
             (int) $request->user()->organization_id,
             ['employee_id' => $employee->id, 'employee_code' => $employee->employee_code],
         );
+
+        // Tell the employee when their employment status becomes inactive or
+        // terminated (they can still sign in; a badge + dashboard block mirror
+        // this notice — the PasswordChangeRequired pattern).
+        if ($oldEmployee['status'] !== $data['status']
+            && in_array($data['status'], ['inactive', 'terminated'], true)) {
+            $employee->user?->notify(new EmploymentStatusChanged($data['status']));
+        }
 
         return redirect()
             ->route('employees.show', $employee)

@@ -20,6 +20,8 @@ use Laravel\Sanctum\HasApiTokens;
     'organization_id',
     'name',
     'email',
+    'avatar_path',
+    'phone',
     'password',
     'must_change_password',
     'is_platform_admin',
@@ -67,6 +69,9 @@ class User extends Authenticatable
         return $this->deactivated_at !== null;
     }
 
+    /**
+     * @return BelongsTo<Organization, $this>
+     */
     public function organization(): BelongsTo
     {
         return $this->belongsTo(Organization::class);
@@ -77,6 +82,9 @@ class User extends Authenticatable
         return $this->belongsToMany(Role::class, 'user_role');
     }
 
+    /**
+     * @return HasOne<Employee, $this>
+     */
     public function employee(): HasOne
     {
         return $this->hasOne(Employee::class);

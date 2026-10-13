@@ -17,7 +17,7 @@
     </x-slot>
 
     <div class="py-12">
-        <div class="max-w-3xl mx-auto sm:px-6 lg:px-8">
+        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
             @if (session('status'))
                 <div class="mb-4 rounded-md bg-green-50 p-4 text-sm text-green-800">{{ session('status') }}</div>
             @endif
@@ -25,25 +25,25 @@
             <div class="bg-white shadow-sm sm:rounded-lg overflow-hidden">
                 <ul class="divide-y divide-gray-200">
                     @forelse ($notifications as $notification)
-                        <li class="px-6 py-4 flex items-start gap-4 {{ $notification->read_at ? 'bg-white' : 'bg-indigo-50/40' }}">
-                            <span class="mt-1 inline-flex h-2.5 w-2.5 shrink-0 rounded-full {{ $notification->read_at ? 'bg-gray-300' : 'bg-indigo-500' }}"
-                                  title="{{ $notification->read_at ? 'Read' : 'Unread' }}"></span>
-                            <div class="min-w-0 flex-1">
-                                <p class="text-sm font-medium text-gray-900">
-                                    {{ $notification->data['title'] ?? 'Notification' }}
-                                    <span class="ms-2 align-middle text-xs font-normal text-gray-400 uppercase">
-                                        {{ $notification->data['group'] ?? '' }}
+                        <li class="{{ $notification->read_at ? 'bg-white' : 'bg-indigo-50/40' }}">
+                            <a href="{{ route('notifications.read', $notification->id) }}"
+                               class="flex items-start gap-4 px-6 py-4 hover:bg-gray-50">
+                                <span class="mt-1 inline-flex h-2.5 w-2.5 shrink-0 rounded-full {{ $notification->read_at ? 'bg-gray-300' : 'bg-indigo-500' }}"
+                                      title="{{ $notification->read_at ? 'Read' : 'Unread' }}"></span>
+                                <span class="min-w-0 flex-1 max-w-3xl">
+                                    <span class="block text-sm font-medium text-gray-900">
+                                        {{ $notification->data['title'] ?? 'Notification' }}
+                                        <span class="ms-2 align-middle text-xs font-normal text-gray-400 uppercase">
+                                            {{ $notification->data['group'] ?? '' }}
+                                        </span>
                                     </span>
-                                </p>
-                                <p class="mt-0.5 text-sm text-gray-600">{{ $notification->data['body'] ?? '' }}</p>
-                                <p class="mt-1 text-xs text-gray-400">{{ $notification->created_at->diffForHumans() }}</p>
-                            </div>
-                            @if (! $notification->read_at)
-                                <a href="{{ route('notifications.read', $notification->id) }}"
-                                   class="text-xs font-medium text-indigo-600 hover:text-indigo-800 whitespace-nowrap">
-                                    Mark read
-                                </a>
-                            @endif
+                                    <span class="mt-0.5 block text-sm text-gray-600">{{ $notification->data['body'] ?? '' }}</span>
+                                    <span class="mt-1 block text-xs text-gray-400">{{ $notification->created_at->diffForHumans() }}</span>
+                                </span>
+                                <span class="mt-1 ms-auto shrink-0 text-xs font-medium text-indigo-600 hover:text-indigo-800 whitespace-nowrap">
+                                    {{ $notification->read_at ? 'Open' : 'Mark read & open' }}
+                                </span>
+                            </a>
                         </li>
                     @empty
                         <li class="px-6 py-10 text-center text-sm text-gray-500">

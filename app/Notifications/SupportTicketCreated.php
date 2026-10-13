@@ -43,6 +43,11 @@ class SupportTicketCreated extends OrganizationNotification
         return 'security';
     }
 
+    public function featureKey(): ?string
+    {
+        return 'support';
+    }
+
     public function actionUrl(): ?string
     {
         return route('support.show', $this->ticket);

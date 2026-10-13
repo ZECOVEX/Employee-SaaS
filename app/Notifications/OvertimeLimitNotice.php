@@ -62,6 +62,11 @@ class OvertimeLimitNotice extends OrganizationNotification
         return 'attendance';
     }
 
+    public function featureKey(): ?string
+    {
+        return 'overtime';
+    }
+
     public function actionUrl(): ?string
     {
         return $this->audience === 'employee'

@@ -61,6 +61,7 @@
                                     @endif
                                 </td>
                                 <td class="px-6 py-4 text-right space-x-2 whitespace-nowrap">
+                                    <a href="{{ route('leave.show', $leaveRequest) }}" class="text-indigo-600 hover:underline">View</a>
                                     @if ($leaveRequest->status === 'PENDING')
                                         @can('leave.approve')
                                             <form action="{{ route('leave.approve', $leaveRequest) }}" method="POST" class="inline">

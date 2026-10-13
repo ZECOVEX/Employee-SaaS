@@ -102,6 +102,7 @@ Security & enterprise features reuse the catalog (still 30 keys):
 - **API keys + SCIM tokens** (`settings/api-keys`, create/revoke endpoints) → `settings.manage`
 - **Webhooks** (`settings/webhooks`, create/destroy/test endpoints) → `settings.manage`
 - **SSO** (`settings/sso`, discovery test) → `settings.manage`; the login-page SSO button list and `sso/{org}` / `sso/callback` routes are **guest** routes (no gate)
+- **Email (SMTP)** (`settings/email`, test-send endpoint, Post-Phase 17 + feature checklist, Post-Phase 18) → `settings.manage`; the `NotificationSending` listener applies the org's saved SMTP config to every mail-channel send (including Laravel's default `ResetPassword`) and cancels the mail channel for features unticked in `mail_features` (in-app notifications unaffected; the test email is never gated)
 - **Role permission editor** (`GET roles`, `GET/PUT roles/{role}`) → `settings.manage`; the `company_admin` role is locked (read-only) server-side regardless of the caller's intent
 - **Audit CSV export** (`GET audit-logs/export`) → rides the existing `audit.view` gate (same as the audit index)
 - **MFA** (`profile` enable/confirm/disable/regenerate, `mfa.challenge`) → self-service; any authenticated user manages their own MFA, the challenge gate blocks login until satisfied
@@ -123,10 +124,16 @@ Security & enterprise features reuse the catalog (still 30 keys):
 - **Health probes** (`GET /health`, `GET /ready`) and the **privacy policy** (`GET /privacy`) are public, unauthenticated routes
 - Retention settings are part of the existing `settings.manage` Settings form
 
+## Post-Phase 12/13 — no new permission keys
+
+- **Leave re-review & notices** — approve, re-approve, reject and re-reject all remain `leave.approve` (managers stay team-scoped via `authorizeReview`, `leave.manage`/platform admin unrestricted); posting a notice (`POST leave/{leaveRequest}/notice`) reuses the same key and scope. The detail page (`GET leave/{leaveRequest}`) needs only `leave.view` plus ownership (the requesting employee) or review scope. Editing a request (`GET leave/{leaveRequest}/edit`, `PUT leave/{leaveRequest}` — Post-Phase 13, including edits after approval that reconcile the balance) also reuses `leave.approve` with the identical team scope.
+
 ## Self-service exceptions (no extra permission needed)
 
 - **Own attendance** — any authenticated employee can view `GET attendance/employee/{theirOwnId}`; viewing anyone else's record requires `attendance.view` (403 otherwise). The sidebar shows a "My Attendance" entry when `attendance.view` is absent.
+- **Attendance self-report** (Post-Phase 11) — `POST attendance/self-report` needs no permission key: the controller only ever acts on the signed-in user's own employee record (404 for users without one or when the org toggle is off), one submission per direction per day, immutable afterwards. Admin corrections still require `attendance.manage`.
 - **Profile identity lock** — changing name/email on the profile page requires `employees.edit` (or platform admin); otherwise the fields render disabled with a "managed by HR" note.
+- **Profile photo/phone** (Post-Phase 19) — `PUT profile` needs no permission key: any authenticated user uploads their own photo (public disk, `avatars/`, `image|max:2048`) or sets their own phone; old/replaced files are deleted and the change is audited as `profile.updated`.
 - **Account deletion** — §43: self-service deletion is **prohibited for every role**; the profile section shows the admin-contact note + the self data-export link. Removal is an admin workflow (`users.manage` → Deactivate or Delete on the Users page).
 - **NFC card history** — `GET nfc-cards/{card}/history` requires `nfc.view`; card replacement (`POST nfc-cards/{card}/replace`) requires `nfc.manage`.
 

@@ -12,9 +12,10 @@
                 <div class="rounded-md bg-red-50 p-4 text-sm text-red-700">{{ $errors->first('status') }}</div>
             @endif
 
-            <div class="mb-4 flex gap-3 text-sm">
+            <div class="mb-4 flex flex-wrap gap-3 text-sm">
                 <a href="{{ route('settings.edit') }}" class="text-indigo-600 hover:underline">Company info</a>
                 <span class="font-medium text-gray-700">Single sign-on</span>
+                <a href="{{ route('mail-settings.edit') }}" class="text-indigo-600 hover:underline">Email</a>
                 <a href="{{ route('api-keys.index') }}" class="text-indigo-600 hover:underline">API &amp; provisioning</a>
                 <a href="{{ route('webhooks.index') }}" class="text-indigo-600 hover:underline">Webhooks</a>
             </div>

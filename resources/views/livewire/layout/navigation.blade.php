@@ -19,6 +19,17 @@ new class extends Component
         return $user ? $user->notifications()->whereNull('read_at')->count() : 0;
     }
 
+    /**
+     * Non-active employment status ('inactive' | 'terminated') for the badge
+     * next to the user's name; null for active employees and non-employees.
+     */
+    public function employmentStatus(): ?string
+    {
+        $status = auth()->user()?->employee?->status;
+
+        return ($status !== null && $status !== 'active') ? $status : null;
+    }
+
     public function recentNotifications(): array
     {
         $user = auth()->user();
@@ -31,10 +42,13 @@ new class extends Component
     }
 
     /**
-     * Nested navigation tree: top-level link or group > sub-navlink >
-     * sub-sub-navlink (e.g. Attendance > Devices > NFC Cards / Terminals).
-     * Groups without visible children are dropped; groups with a single
-     * visible child collapse to that plain link (see prune()).
+     * Navigation tree (all roles): the top bar holds only the most important
+     * destinations — Dashboard, the section dropdowns (People, Attendance,
+     * Payroll, Reports, Settings) and Leave; everything else lives inside
+     * those dropdown sub-navs. Notifications is mobile_only (desktop uses
+     * the bell dropdown). Groups without visible children are dropped;
+     * groups with a single visible child collapse to that plain link (see
+     * prune()).
      */
     public function links(): array
     {
@@ -81,7 +95,7 @@ new class extends Component
                 'can' => true,
             ],
             [
-                'label' => 'Employees',
+                'label' => 'People',
                 'active' => ['employees.*', 'departments.*', 'positions.*', 'users.*'],
                 'children' => [
                     ['label' => 'Employees', 'route' => 'employees.index', 'active' => 'employees.*', 'can' => $can('employees.view')],
@@ -107,34 +121,26 @@ new class extends Component
                 ], $myAttendance),
             ],
             ['label' => 'Leave', 'route' => 'leave.index', 'active' => 'leave*', 'can' => $can('leave.view')],
-            // Phase 5 - self-service overtime (no permission key) + approvals.
+            // Personal inbox — the bell dropdown covers the desktop; the
+            // mobile menu needs its own entry (§64).
+            ['label' => 'Notifications', 'route' => 'notifications.index', 'active' => 'notifications.*', 'can' => true, 'mobile_only' => true],
+            // Time & pay: self-service overtime, approvals and salary.
             [
-                'label' => 'Overtime',
-                'active' => ['overtime.index', 'overtime.queue'],
-                'children' => [
+                'label' => 'Payroll',
+                'active' => ['salary.*', 'overtime.index', 'overtime.queue'],
+                'children' => array_merge([
                     ['label' => 'Overtime', 'route' => 'overtime.index', 'active' => 'overtime.index', 'can' => true],
                     ['label' => 'OT approvals', 'route' => 'overtime.queue', 'active' => 'overtime.queue', 'can' => $can('overtime.manage')],
-                ],
-            ],
-            [
-                'label' => 'Salary',
-                'active' => 'salary.*',
-                'children' => array_merge([
                     ['label' => 'Salary', 'route' => 'salary.index', 'active' => 'salary.*', 'can' => $can('salary.view')],
                 ], $mySalary),
             ],
-            // Self-service monthly statistics - own numbers only.
-            ['label' => 'Statistics', 'route' => 'statistics.index', 'active' => 'statistics.*', 'can' => (bool) $user->employee],
-            // Personal inbox — also reachable from the desktop bell dropdown,
-            // but the mobile menu needs its own entry (§64).
-            ['label' => 'Notifications', 'route' => 'notifications.index', 'active' => 'notifications.*', 'can' => true],
-            // Password-recovery tickets (Gate::support.view — admins,
-            // managers, department managers).
-            ['label' => 'Support', 'route' => 'support.index', 'active' => 'support.*', 'can' => $user->can('support.view')],
+            // Personal monthly statistics sit with the org reports; without
+            // reports.view the group collapses to a plain "Statistics" link.
             [
                 'label' => 'Reports',
-                'active' => ['reports.attendance', 'reports.monthly', 'reports.overtime', 'reports.salary', 'analytics.*'],
+                'active' => ['reports.attendance', 'reports.monthly', 'reports.overtime', 'reports.salary', 'analytics.*', 'statistics.*'],
                 'children' => [
+                    ['label' => 'Statistics', 'route' => 'statistics.index', 'active' => 'statistics.*', 'can' => (bool) $user->employee],
                     ['label' => 'Attendance Report', 'route' => 'reports.attendance', 'active' => 'reports.attendance', 'can' => $can('reports.view')],
                     ['label' => 'Monthly Report', 'route' => 'reports.monthly', 'active' => 'reports.monthly', 'can' => $can('reports.view')],
                     ['label' => 'Overtime Report', 'route' => 'reports.overtime', 'active' => 'reports.overtime', 'can' => $can('reports.view')],
@@ -144,18 +150,20 @@ new class extends Component
             ],
             [
                 'label' => 'Settings',
-                'active' => ['settings.*', 'schedule.*', 'audit-logs.*', 'billing.*', 'roles.*', 'sso.*', 'webhooks.*', 'api-keys.*'],
+                'active' => ['settings.*', 'schedule.*', 'audit-logs.*', 'billing.*', 'roles.*', 'sso.*', 'mail-settings.*', 'webhooks.*', 'api-keys.*', 'support.*', 'platform.*'],
                 'children' => [
                     ['label' => 'Settings', 'route' => 'settings.edit', 'active' => ['settings.edit', 'settings.update', 'schedule.*'], 'can' => $can('settings.manage')],
                     ['label' => 'Single Sign-On', 'route' => 'sso.edit', 'active' => 'sso.*', 'can' => $can('settings.manage')],
+                    ['label' => 'Email', 'route' => 'mail-settings.edit', 'active' => 'mail-settings.*', 'can' => $can('settings.manage')],
                     ['label' => 'API & Provisioning', 'route' => 'api-keys.index', 'active' => ['api-keys.*', 'scim-tokens.*'], 'can' => $can('settings.manage')],
                     ['label' => 'Webhooks', 'route' => 'webhooks.index', 'active' => 'webhooks.*', 'can' => $can('settings.manage')],
                     ['label' => 'Roles', 'route' => 'roles.index', 'active' => 'roles.*', 'can' => $can('users.manage')],
                     ['label' => 'Audit Logs', 'route' => 'audit-logs.index', 'active' => 'audit-logs.*', 'can' => $can('audit.view')],
                     ['label' => 'Billing', 'route' => 'billing.index', 'active' => 'billing.*', 'can' => $can('settings.manage')],
+                    ['label' => 'Support', 'route' => 'support.index', 'active' => 'support.*', 'can' => $user->can('support.view')],
+                    ['label' => 'Platform', 'route' => 'platform.organizations', 'active' => 'platform.*', 'can' => $user->is_platform_admin],
                 ],
             ],
-            ['label' => 'Platform', 'route' => 'platform.organizations', 'active' => 'platform.*', 'can' => $user->is_platform_admin],
         ];
 
         return $this->prune($links);
@@ -204,25 +212,19 @@ new class extends Component
         <div class="flex justify-between h-16">
             <div class="flex">
                 <div class="shrink-0 flex items-center">
-                    <a href="{{ route('dashboard') }}" wire:navigate class="font-semibold text-indigo-600">
-                        EmployeeSaaS
+                    <a href="{{ route('dashboard') }}" wire:navigate class="font-semibold text-indigo-600 whitespace-nowrap">
+                        {{ auth()->user()?->organization?->name ?? config('app.name') }}
                     </a>
                 </div>
 
-                <div class="hidden space-x-6 sm:-my-px sm:ms-10 sm:flex">
-                    @foreach ($this->links() as $link)
+                <div class="hidden space-x-2 xl:-my-px xl:ms-10 xl:flex">
+                    @foreach (array_filter($this->links(), fn ($link) => empty($link['mobile_only'])) as $link)
                         @include('livewire.layout.partials.desktop-item', ['item' => $link])
                     @endforeach
                 </div>
             </div>
 
             <div class="hidden sm:flex sm:items-center sm:ms-6">
-                @if (! empty($currentOrganization ?? null))
-                    <span class="me-3 text-xs text-gray-500 uppercase tracking-wide">
-                        {{ $currentOrganization->name }}
-                    </span>
-                @endif
-
                 @if (auth()->user()?->canPermission('employees.view') || auth()->user()?->canPermission('nfc.view'))
                     <div class="relative me-2"
                          x-data="{
@@ -298,7 +300,7 @@ new class extends Component
                             Notifications
                         </div>
                         @forelse ($this->recentNotifications() as $notification)
-                            <a href="{{ route('notifications.read', $notification->id) }}"
+                            <a href="{{ route('notifications.read', $notification->id) }}" wire:navigate
                                class="block px-4 py-3 hover:bg-gray-50 border-b border-gray-50 last:border-0">
                                 <p class="text-sm font-medium text-gray-800 {{ $notification->read_at ? '' : 'text-indigo-700' }}">
                                     {{ $notification->data['title'] ?? 'Notification' }}
@@ -317,7 +319,13 @@ new class extends Component
                 <x-dropdown align="right" width="48">
                     <x-slot name="trigger">
                         <button class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-gray-500 bg-white hover:text-gray-700 focus:outline-none transition ease-in-out duration-150">
+                            <x-avatar size="sm" class="me-2" />
                             <div x-data="{{ json_encode(['name' => auth()->user()->name]) }}" x-text="name" x-on:profile-updated.window="name = $event.detail.name"></div>
+                            @if ($status = $this->employmentStatus())
+                                <span class="ms-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold {{ $status === 'terminated' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
+                                    {{ ucfirst($status) }}
+                                </span>
+                            @endif
                             <div class="ms-1">
                                 <svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
                                     <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
@@ -339,7 +347,7 @@ new class extends Component
                 </x-dropdown>
             </div>
 
-            <div class="-me-2 flex items-center sm:hidden">
+            <div class="-me-2 flex items-center xl:hidden">
                 <button @click="open = ! open" class="inline-flex items-center justify-center p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none focus:bg-gray-100 focus:text-gray-500 transition duration-150 ease-in-out">
                     <svg class="h-6 w-6" stroke="currentColor" fill="none" viewBox="0 0 24 24">
                         <path :class="{'hidden': open, 'inline-flex': ! open }" class="inline-flex" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
@@ -350,7 +358,7 @@ new class extends Component
         </div>
     </div>
 
-    <div :class="{'block': open, 'hidden': ! open}" class="hidden sm:hidden">
+    <div :class="{'block': open, 'hidden': ! open}" class="hidden xl:hidden">
         <div class="pt-2 pb-3 space-y-1">
             @foreach ($this->links() as $link)
                 @include('livewire.layout.partials.mobile-item', ['item' => $link])
@@ -358,9 +366,19 @@ new class extends Component
         </div>
 
         <div class="pt-4 pb-1 border-t border-gray-200">
-            <div class="px-4">
-                <div class="font-medium text-base text-gray-800">{{ auth()->user()->name }}</div>
-                <div class="font-medium text-sm text-gray-500">{{ auth()->user()->email }}</div>
+            <div class="px-4 flex items-center gap-3">
+                <x-avatar size="md" />
+                <div>
+                    <div class="font-medium text-base text-gray-800">
+                        {{ auth()->user()->name }}
+                        @if ($status = $this->employmentStatus())
+                            <span class="ms-1 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold {{ $status === 'terminated' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
+                                {{ ucfirst($status) }}
+                            </span>
+                        @endif
+                    </div>
+                    <div class="font-medium text-sm text-gray-500">{{ auth()->user()->email }}</div>
+                </div>
             </div>
             <div class="mt-3 space-y-1">
                 <x-responsive-nav-link :href="route('profile')" wire:navigate>

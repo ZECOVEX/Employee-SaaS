@@ -67,7 +67,7 @@ Open http://localhost:8000 — the entrypoint generates `APP_KEY`, caches config
 - **Statistics**: monthly estimate with per-day breakdown (late/absence/half-day/unpaid-leave deductions, grace + rounding + % cap rules configurable in Settings under "Salary & deductions")
 - **Payslips**: finalize a completed month into an immutable snapshot, revision history when salary or rules change, print/save-as-PDF detail page
 - **Reports (§41)**: Attendance (date/status/employee/department filters), Monthly (present/absent/late/leave/hours + totals), Salary (effective records; requires `reports.view` **and** `salary.view`) — CSV export for each, Excel/PDF via the browser
-- **Analytics**: 6-month attendance trend, department rates, weekday late pattern, payroll progress — pure CSS charts (`reports.view`; payroll card needs `salary.view`)
+- **Analytics**: 6-month attendance trend, department rates, weekday late pattern, payroll progress, plus workforce mix, attendance-status distribution + worked-vs-expected workload, leave trend/by-type, performance score bands and risk overview (8-KPI strip) — pure CSS charts (`reports.view`; payroll card needs `salary.view`)
 
 ### Phase 4 — Platform
 - **Notifications (§25/§7)**: DB + email via a shared Blade mail template for leave status changes, attendance corrections, NFC card status, salary updates, password changes, and once-per-day late-arrival alerts; in-app center (`/notifications`) with unread bell in the nav
@@ -120,10 +120,45 @@ Open http://localhost:8000 — the entrypoint generates `APP_KEY`, caches config
 - **Terminal geo-security (§32)**: terminals can pin a GPS location + verification radius and/or an IP allowlist (exact or CIDR); the punch API refuses off-allowlist IPs and out-of-radius/missing location fixes
 - **Dev requirements (§62)**: `declare(strict_types=1)` across the codebase, Larastan level 5 (clean with a baseline so new code stays clean), Form Requests on the main write endpoints, `docs/openapi.yaml` (OpenAPI 3.1), an end-to-end journey test, `composer format|analyse|check` scripts, and a CI Larastan step
 
+### Post-Phase 11 — Self-report attendance & employment status visibility
+- **Self-report attendance**: per-org toggle (Settings → "Allow employees to self-report attendance"); when the NFC terminal is down, employees submit their own check-in and check-out time (once each per day, today-only, not in the future) from My Attendance; events reuse the normal derivation pipeline with `source = 'self'`, are immutable from the employee side, race-safe (`lockForUpdate` + throttle), and fully audited (`attendance.self_reported`)
+- **Employment status visibility**: inactive/terminated employees can still sign in; a red "Terminated" / gray "Inactive" pill shows next to their name in the nav on every page; the employee dashboard shows a red "You have been terminated" block (or amber inactive notice); status changes send the employee an `EmploymentStatusChanged` bell + email notification (reactivation sends nothing)
+
+### Post-Phase 12 — Leave re-review & employee-visible notices
+- **Re-reviewable decisions**: admin/HR/managers can approve or reject a leave request as many times as they want (only employee-cancelled requests are terminal); the ledger stays correct across flips — rejecting an approved request refunds the balance and clears its LEAVE attendance stamps, re-reviews never double-deduct, and the employee is notified only when the status actually changes
+- **Notices**: approvers post unlimited notices on a request (`leave_notices` append-only thread); the employee sees every notice (author + timestamp) on the new leave detail page (`GET leave/{id}`, linked as "View" from the index) and receives a `LeaveNoticeAdded` bell + email; Approve/Reject forms now carry an optional note (`review_note`) visible to the employee — employees can read but never post notices
+
+### Post-Phase 13 — Leave editing after approval
+- **Edit anytime**: reviewers (same gate as approving — `leave.approve` + team scope, admin/HR unrestricted) can edit the type, dates and reason of any non-cancelled request from a new edit form — including after approval: reducing the range refunds the freed days, extending it is re-checked against the remaining balance (a failed edit rolls back everything), type changes move days between buckets, and year-boundary edits refund the old year and deduct the new one. Days are always recomputed from the range (weekends excluded) and past dates are allowed — admins can adjust leave at any time
+- **Ledger, audit & notifications stay honest**: approved edits move the LEAVE attendance stamps to the new range (rows with real check-ins untouched), pending/rejected edits never touch the balance, and unpaid types never consume one; every save writes a `leave.edited` audit row (old → new), notifies the employee (`LeaveStatusChanged` — "Leave updated"), re-dispatches the `LEAVE_APPROVED` webhook when still approved, and is refused (403) for cancelled requests or anyone outside the review scope
+
+### Post-Phase 14 — Top navbar restructure
+- **Importance-tiered nav (all roles)**: the top bar now shows only the most important destinations — Dashboard, People ▾ / Attendance ▾ / Payroll ▾ / Reports ▾ / Settings ▾ section dropdowns, and Leave — while everything else lives in those dropdown sub-navs (Employees/Departments/Positions/Users under People, Overtime + approvals + Salary under Payroll, personal Statistics under Reports, Support/Platform under Settings); Notifications is mobile-menu-only since the desktop has the bell dropdown — RBAC pruning, single-child collapse (e.g. managers still see a plain "Support" link) and Devices flyouts unchanged
+- **Responsive fix**: desktop links start at `xl` (1280px) instead of `sm` (640px) where the crowded bar overflowed the search/bell/user area; below `xl` the hamburger shows the full grouped menu, labels are `whitespace-nowrap`
+
+### Post-Phase 15 — Branding: powered-by & dynamic company name
+- **Powered by Zecovex**: the landing page footer reads "Powered by Zecovex" (replacing the stock Laravel/PHP version line) and every authenticated page ends with "Powered by Zecovex | {Company Name}" — the company name comes from the Settings (organization) name and is omitted for org-less platform admins; `APP_NAME` is now `EmployeeSaaS`, so browser titles carry the product name instead of "Laravel"
+- **Dynamic navbar brand**: the top-left brand shows the signed-in organization's name instead of the hardcoded "EmployeeSaaS" (fallback `config('app.name')`), and the redundant right-side org-name chip was removed — the brand carries it now
+
+### Post-Phase 16 — Notification UI fix
+- **Suitable layout**: the notification center now uses the standard full-width `max-w-7xl` body (it was a slim 768px column under the wide header) with capped text rows and the action pinned right; the bell dropdown finally gets its intended `w-80` panel width — the component only mapped `width="48"`, so `width="80"` emitted a broken literal `80` class and the panel collapsed to a slim strip
+
+### Post-Phase 17 — Per-org email (SMTP) settings
+- **Bring your own webmail/SMTP**: Settings → Email lets admins point the app at their own mail server — host, port, TLS/SSL/none encryption, username, password (stored encrypted), and the from address/name; every outgoing email (leave decisions, payslips, security alerts, password resets…) is then sent through that server, with a one-click test email to verify the connection
+- **Applied automatically on send**: a `NotificationSending` hook applies the organization's saved SMTP config to every mail-channel notification (sync or queued), falling back to the platform `.env` mailer when the org has SMTP disabled; the page sits under Settings ▾ → Email and reuses `settings.manage`
+
+### Post-Phase 18 — Per-feature email allow/deny
+- **Choose what gets mailed**: Settings → Email gains a "Which emails should be sent?" checklist — leave decisions, leave notices, attendance, overtime, salary/payslips, monthly progress, warnings & risk alerts, employment status, security alerts, NFC cards, support tickets, and password resets. Everything is on by default; the selection is stored in `organizations.settings.mail_features` and audited with the SMTP save (untick-all = no email at all)
+- **In-app notifications always stay**: the same `NotificationSending` hook cancels only the *mail channel* (returns `false`) for disabled features, so the in-app/database notification still arrives — and the SMTP connectivity test email is never gated by the checklist
+
+### Post-Phase 19 — Dashboard drill-downs & profile photo
+- **Hover drill-downs everywhere**: every admin dashboard stat card (present/late/absent/on-leave today, employee & user counts, department mix, score bands, at-risk, risk alerts, overtime today/pending/month) and every employee month tile (present/late/absent/leave days, balance by type) opens a hover panel listing the underlying rows — names, arrival times, late minutes, leave types, per-day lists — rendered server-side with an Alpine viewport clamp
+- **Profile photo & phone**: every user uploads a profile photo (JPG/PNG ≤ 2 MB, live preview, remove option) and a contact phone on the profile page; the photo is stored on the public disk and shown as an avatar (initials fallback) in the desktop user menu and the mobile nav; changes are audited (`profile.updated`)
+
 ## Tests & checks
 
 ```bash
-php artisan test        # 361 tests
+php artisan test        # 456 tests
 composer format         # Pint code style (app tests routes database bootstrap resources)
 composer analyse        # Larastan level 5 (phpstan.neon + baseline)
 composer check          # format + analyse + test
@@ -134,7 +169,7 @@ composer check          # format + analyse + test
 - [docs/architecture.md](docs/architecture.md) — tenancy, middleware, request flow, API, real-time, MFA/SSO/webhooks/Stripe, observability, privacy, geo
 - [docs/schema.md](docs/schema.md) — database tables and relationships
 - [docs/rbac.md](docs/rbac.md) — permission catalog and role matrix
-- [docs/roadmap.md](docs/roadmap.md) — Phases 1–10 (all complete)
+- [docs/roadmap.md](docs/roadmap.md) — Phases 1–10 + Post-Phase 11–19 additions (all complete)
 - [docs/openapi.yaml](docs/openapi.yaml) — OpenAPI 3.1 spec for /api/v1 + the NFC punch endpoint
 
 ## Scheduled Commands

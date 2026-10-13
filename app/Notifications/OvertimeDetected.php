@@ -59,6 +59,11 @@ class OvertimeDetected extends OrganizationNotification
         return 'attendance';
     }
 
+    public function featureKey(): ?string
+    {
+        return 'overtime';
+    }
+
     public function actionUrl(): ?string
     {
         return route('overtime.index');

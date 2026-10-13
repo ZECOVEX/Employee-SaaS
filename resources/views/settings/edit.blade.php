@@ -9,11 +9,12 @@
                 <div class="mb-4 rounded-md bg-green-50 p-4 text-sm text-green-800">{{ session('status') }}</div>
             @endif
 
-            <div class="mb-4 flex gap-3 text-sm">
+            <div class="mb-4 flex flex-wrap gap-3 text-sm">
                 <span class="font-medium text-gray-700">Company info</span>
                 <a href="{{ route('schedule.edit') }}" class="text-indigo-600 hover:underline">Working hours</a>
                 <a href="{{ route('overtime-policy.edit') }}" class="text-indigo-600 hover:underline">Overtime policy</a>
                 <a href="{{ route('scoring-settings.edit') }}" class="text-indigo-600 hover:underline">Scoring &amp; risk</a>
+                <a href="{{ route('mail-settings.edit') }}" class="text-indigo-600 hover:underline">Email</a>
             </div>
 
             <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
@@ -50,6 +51,18 @@
                             How clock times are shown across attendance, dashboards and history (check-in/out, punch events, averages).
                         </p>
                         <x-input-error :messages="$errors->get('time_format')" class="mt-2" />
+                    </div>
+                    <div>
+                        <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+                            <input type="hidden" name="self_attendance_enabled" value="0">
+                            <input type="checkbox" name="self_attendance_enabled" value="1"
+                                   @checked(old('self_attendance_enabled', $organization->selfAttendanceEnabled() ? '1' : '0') === '1') />
+                            Allow employees to self-report attendance
+                        </label>
+                        <p class="mt-1 text-xs text-gray-500">
+                            Fallback for when an NFC terminal is down: employees submit their own check-in and check-out
+                            time once each per day from My Attendance. Submissions cannot be edited afterwards.
+                        </p>
                     </div>
                     <div class="text-sm text-gray-500">
                         Slug: <code>{{ $organization->slug }}</code> ·

@@ -123,6 +123,42 @@
 
     <div class="py-12">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
+            @if ($employee?->status === 'terminated')
+                <div class="rounded-md bg-red-50 border border-red-200 p-4">
+                    <div class="flex items-start">
+                        <div class="flex-shrink-0">
+                            <svg class="h-5 w-5 text-red-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v4a1 1 0 102 0V7zm-1 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
+                            </svg>
+                        </div>
+                        <div class="ms-3">
+                            <h3 class="text-sm font-bold text-red-800">You have been terminated</h3>
+                            <div class="mt-1 text-sm text-red-700">
+                                Your employment with {{ $user->organization?->name ?? 'this company' }} has been terminated.
+                                If you have questions about your final settlement or employment record, please contact HR.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            @elseif ($employee?->status === 'inactive')
+                <div class="rounded-md bg-amber-50 border border-amber-200 p-4">
+                    <div class="flex items-start">
+                        <div class="flex-shrink-0">
+                            <svg class="h-5 w-5 text-amber-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+                            </svg>
+                        </div>
+                        <div class="ms-3">
+                            <h3 class="text-sm font-bold text-amber-800">Your employment status is inactive</h3>
+                            <div class="mt-1 text-sm text-amber-700">
+                                Your employment record is currently marked as inactive.
+                                If you have questions, please contact HR.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            @endif
+
             @foreach ($riskEvents ?? [] as $riskEvent)
                 @if ($riskEvent->type === \App\Models\RiskEvent::TYPE_LATE_WEEK)
                     <div class="rounded-md bg-red-50 border border-red-200 p-4">
@@ -183,26 +219,36 @@
 
             @if ($employee)
                 <div class="grid grid-cols-2 lg:grid-cols-5 gap-4">
-                    <div class="bg-white shadow-sm sm:rounded-lg p-5">
-                        <div class="text-sm text-gray-500">Present ({{ $month->format('M') }})</div>
-                        <div class="text-2xl font-semibold text-green-700 mt-1">{{ $monthStats['present'] }}</div>
-                    </div>
-                    <div class="bg-white shadow-sm sm:rounded-lg p-5">
-                        <div class="text-sm text-gray-500">Late</div>
-                        <div class="text-2xl font-semibold text-amber-600 mt-1">{{ $monthStats['late'] }}</div>
-                    </div>
-                    <div class="bg-white shadow-sm sm:rounded-lg p-5">
-                        <div class="text-sm text-gray-500">Absent</div>
-                        <div class="text-2xl font-semibold text-red-600 mt-1">{{ $monthStats['absent'] }}</div>
-                    </div>
-                    <div class="bg-white shadow-sm sm:rounded-lg p-5">
-                        <div class="text-sm text-gray-500">On leave</div>
-                        <div class="text-2xl font-semibold text-blue-600 mt-1">{{ $monthStats['leave'] }}</div>
-                    </div>
-                    <div class="bg-white shadow-sm sm:rounded-lg p-5">
-                        <div class="text-sm text-gray-500">Leave balance</div>
-                        <div class="text-2xl font-semibold text-gray-900 mt-1">{{ $leaveBalance['remaining'] }}<span class="text-sm font-normal text-gray-400"> / {{ $leaveBalance['total'] }}d</span></div>
-                    </div>
+                    <x-hover-panel :drill="$drilldowns['present'] ?? null" class="bg-white shadow-sm sm:rounded-lg p-5">
+                        <x-slot name="trigger">
+                            <div class="text-sm text-gray-500">Present ({{ $month->format('M') }})</div>
+                            <div class="text-2xl font-semibold text-green-700 mt-1">{{ $monthStats['present'] }}</div>
+                        </x-slot>
+                    </x-hover-panel>
+                    <x-hover-panel :drill="$drilldowns['late'] ?? null" class="bg-white shadow-sm sm:rounded-lg p-5">
+                        <x-slot name="trigger">
+                            <div class="text-sm text-gray-500">Late</div>
+                            <div class="text-2xl font-semibold text-amber-600 mt-1">{{ $monthStats['late'] }}</div>
+                        </x-slot>
+                    </x-hover-panel>
+                    <x-hover-panel :drill="$drilldowns['absent'] ?? null" class="bg-white shadow-sm sm:rounded-lg p-5">
+                        <x-slot name="trigger">
+                            <div class="text-sm text-gray-500">Absent</div>
+                            <div class="text-2xl font-semibold text-red-600 mt-1">{{ $monthStats['absent'] }}</div>
+                        </x-slot>
+                    </x-hover-panel>
+                    <x-hover-panel :drill="$drilldowns['leave'] ?? null" class="bg-white shadow-sm sm:rounded-lg p-5">
+                        <x-slot name="trigger">
+                            <div class="text-sm text-gray-500">On leave</div>
+                            <div class="text-2xl font-semibold text-blue-600 mt-1">{{ $monthStats['leave'] }}</div>
+                        </x-slot>
+                    </x-hover-panel>
+                    <x-hover-panel :drill="$drilldowns['balance'] ?? null" class="bg-white shadow-sm sm:rounded-lg p-5">
+                        <x-slot name="trigger">
+                            <div class="text-sm text-gray-500">Leave balance</div>
+                            <div class="text-2xl font-semibold text-gray-900 mt-1">{{ $leaveBalance['remaining'] }}<span class="text-sm font-normal text-gray-400"> / {{ $leaveBalance['total'] }}d</span></div>
+                        </x-slot>
+                    </x-hover-panel>
                 </div>
 
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">

@@ -5,10 +5,14 @@ declare(strict_types=1);
 namespace App\Providers;
 
 use App\Models\ApiKey;
+use App\Models\Organization;
 use App\Models\ScimToken;
 use App\Models\User;
+use App\Services\MailSettings;
 use App\Services\RoleSeederService;
+use Illuminate\Notifications\Events\NotificationSending;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
@@ -56,6 +60,35 @@ class AppServiceProvider extends ServiceProvider
             if ($user && ! $user->is_platform_admin && $user->organization_id) {
                 $view->with('currentOrganization', $user->organization);
             }
+        });
+
+        // Post-Phase 17 — apply the organization's SMTP settings to every
+        // mail-channel notification just before it sends (covers queued
+        // sends and Laravel's default ResetPassword notification too).
+        // Post-Phase 18 — returning false cancels just the mail channel
+        // when the feature is toggled off in Settings → Email (the in-app
+        // database notification still goes out).
+        Event::listen(NotificationSending::class, function (NotificationSending $event): ?bool {
+            if ($event->channel !== 'mail') {
+                return null;
+            }
+
+            $organization = $event->notifiable->organization ?? null;
+
+            if (! $organization instanceof Organization) {
+                return null;
+            }
+
+            $mail = app(MailSettings::class);
+            $feature = $mail->featureKeyFor($event->notification);
+
+            if ($feature !== null && ! $mail->featureEnabled($organization, $feature)) {
+                return false;
+            }
+
+            $mail->apply($organization);
+
+            return null;
         });
     }
 }

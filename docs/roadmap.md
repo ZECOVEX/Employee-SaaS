@@ -172,6 +172,104 @@ Tests: **361 green** (11 new — ProfileTest §43 suite, NfcTerminalTest §32 ge
 
 Deferred: SAML SSO (OIDC covers the spec), proration rules, full Eloquent relation generics to shrink the phpstan baseline.
 
+## Post-Phase 11 — Employee self-report attendance + employment status visibility (shipped)
+
+Two user-requested additions after Phase 10:
+
+- ✅ **Self-report attendance (terminal-down fallback)** — per-org toggle `settings.self_attendance_enabled` (Settings page checkbox, off by default). When on, the My Attendance page (`attendance/employee/{self}`) shows a "Report attendance" card: the employee submits one check-in (`MANUAL_IN`) and one check-out (`MANUAL_OUT`) per day with a picked time (today only, not in the future). Events reuse the normal pipeline with a new `source = 'self'` so daily derivation, overtime, risk and the admin correction workflow all work unchanged. The once-per-direction-per-day guard runs inside a transaction with `lockForUpdate` (double-submit safe), the route carries `throttle:6,1`, the submissions are immutable from the employee side (no edit/delete route exists; admin `attendance.manage` correction remains the audited escape hatch), and each report writes an `attendance.self_reported` audit row. No permission key — pure self-service, controller-only ownership check. (tests: SelfAttendanceTest, 16)
+- ✅ **Employment status visibility** — employees with `status` inactive/terminated can still sign in (only `users.deactivated_at` blocks authentication), but now: (1) a status pill (red "Terminated" / gray "Inactive") renders next to their name in the nav on every page (desktop + mobile), (2) the employee dashboard shows a red "You have been terminated" block (terminated) or an amber "employment status is inactive" block, mirroring the `must_change_password` banner pattern, and (3) moving an employee to inactive/terminated sends them an `EmploymentStatusChanged` database+mail notification (bell + email), mirroring `PasswordChangeRequired`; reactivation or unrelated edits send nothing. (tests: EmploymentStatusVisibilityTest, 11)
+
+Tests: **388 green** (27 new). pint clean, phpstan clean, assets built.
+
+## Post-Phase 12 — Leave re-review & employee-visible notices (shipped)
+
+User-requested: approvers (admin/HR/manager) can change a leave decision as often as needed and add notices the requesting employee sees.
+
+- ✅ **Re-reviewable decisions** — `LeaveService::approve/reject` no longer require `PENDING`; any status except `CANCELLED` (terminal) can be re-reviewed any number of times, with correct ledger transitions: PENDING/REJECTED → APPROVED deducts the balance (re-checked under `lockForUpdate`; unpaid/zero-quota types skipped), APPROVED → REJECTED refunds the deduction (clamped at 0 — `used_days` is an unsigned column, so the write is a clamped `update`, never a raw decrement below zero) and deletes the LEAVE `daily_attendance` rows the approval created (rows with a real check-in are untouched); same-status re-reviews are idempotent (no double deduction, no duplicate `LeaveStatusChanged` — it fires only on an actual transition); audit rows record the true previous status. Webhook dispatch (`LEAVE_APPROVED`/`LEAVE_REJECTED`) still fires from the controller on every successful review.
+- ✅ **Notice thread** — new `leave_notices` table (append-only: `organization_id`, `leave_request_id`, `user_id` author, `body` text). `POST leave/{leaveRequest}/notice` (`leave.approve` + the same team-scope `authorizeReview` as approve/reject, body ≤ 2000 chars) stores the notice, writes a `leave.noticed` audit row, and sends the employee a `LeaveNoticeAdded` database+mail notification. Notices accumulate forever — nothing is overwritten.
+- ✅ **Leave detail page** — `GET leave/{leaveRequest}` (owner or reviewer scope: `leave.view` + own request / `leave.manage` / manager of the employee) shows the request details, last review (who + when), the full notice thread, a notice composer (reviewers only), and Approve/Reject forms with an optional note — the web UI finally sends `review_note` (previously always null from the web path; ≤ 500 chars, visible to the employee). Quick Approve/Reject for PENDING rows remains on the index; every row now has a "View" link. Employees can read everything but never post notices or re-review; their cancel action is unchanged (own PENDING requests only).
+
+Tests: **403 green** (15 new, `LeaveReviewEditTest`). pint clean, phpstan clean (baseline regenerated to 327), assets built.
+
+## Post-Phase 12b — Analytics dashboard enrichment (shipped)
+
+User-requested: "make the analytics page more detailsfull and standard type."
+
+- ✅ **Enriched Analytics dashboard** — `ReportService::analytics()` gains six org-scoped aggregates: workforce mix (employment-type bars, status pills, 30-day joiners), current-month attendance-status distribution (stacked bar + counts/percentages) with a worked-vs-expected workload block (elapsed scheduled days × schedule), leave analytics (6-month approved/pending/rejected request volumes, approved days by leave type YTD, pending queue link), performance score bands + average from the latest finalized `employee_monthly_statuses` month (empty state before the first run), and open risk events grouped by type/level. The KPI strip grows from 4 to 8 tiles (+avg attendance score, approved leave days this month, pending leave requests, worked-vs-expected %), and the shared `reports/_tabs` partial now links Analytics from every report page. Existing guarantees hold: pure CSS charts, every query `withoutGlobalScopes()` + `organization_id`, payroll card still `salary.view`-gated, all prior assertion strings intact.
+
+Tests: **410 green** (3 new, `AnalyticsEnhancedTest`). pint clean, phpstan clean, assets built.
+
+## Post-Phase 13 — Leave editing after approval (shipped)
+
+User-requested: "fix the leave, admin can edit after the leave accepted, or can reduce the leave at anytime they want."
+
+- ✅ **Edit form + routes** — `GET leave/{leaveRequest}/edit` (`leave.edit`) and `PUT leave/{leaveRequest}` (`leave.update`), both behind `permission:leave.approve` + the same `authorizeReview()` scope as approve/reject/notice (admin/HR `leave.manage` unrestricted, managers team-scoped, everyone else 403). Editable fields: type, dates, reason; `days` is recomputed server-side via `workingDays()` (never taken from the input) and there is deliberately no `after_or_equal:today` rule — admins may edit past ranges any time. `CANCELLED` is terminal (403 on GET and PUT); the show page's Review card gains an "Edit request" link for reviewers.
+- ✅ **Balance + attendance reconciliation** — `LeaveService::edit()` runs in one `DB::transaction` under `lockForUpdate`: APPROVED edits refund the old deduction (param-based `refundDays()`, now shared with reject-after-approve — clamped at 0, zero-quota types skipped), delete the old LEAVE stamps, re-check + deduct the new range (`deductDays()` throws → full rollback, refund included, when it no longer fits the balance), then stamp the new range; type changes move days between buckets and year-boundary edits refund the old year's bucket / deduct the new one (balance rows created on demand). PENDING/REJECTED edits only touch the row. Each save writes a `leave.edited` audit (old → new), sends the employee a `LeaveStatusChanged` "updated" notification, and the controller re-dispatches `LEAVE_APPROVED` when the request is still approved.
+- ✅ **UI + docs** — new `resources/views/leave/edit.blade.php` (house-style form with a current-values summary and an approved-edit banner explaining the balance/stamp consequences), Edit link on the show page; architecture/rbac/schema/README updated.
+
+Tests: **423 green** (13 new, `LeaveEditTest`). pint clean, phpstan clean, assets built.
+
+## Post-Phase 14 — Top navbar restructure (shipped)
+
+User-requested: "fix the top navbars, most important will show top and others will in a sub nav ways for all roles."
+
+- ✅ **Importance-tiered nav for every role** — `links()` now puts only the most important destinations on the top level (Dashboard, the section dropdowns **People / Attendance / Payroll / Reports / Settings**, and Leave) and moves everything else into dropdown sub-navs: Employees/Departments/Positions/Users under **People** (label renamed from "Employees"), Overtime + OT approvals + Salary merged under **Payroll**, personal **Statistics** moved into **Reports** (it still collapses to a plain "Statistics" link when `reports.view` is not held), **Support** and **Platform** nested under **Settings** (a manager with only `support.view` still gets the plain "Support" link via the single-child collapse), and **Notifications** flagged `mobile_only` — the desktop uses the bell dropdown, the mobile menu keeps its inbox entry (§64). RBAC pruning, group single-child collapse, Devices flyouts and active-state highlighting are unchanged; the existing Positions/Support nav tests still pass.
+- ✅ **Responsive overflow fix** — desktop links now start at `xl` (1280px) instead of `sm` (640px), where 8–12 top-level items overflowed into the search/bell/user area; below `xl` the hamburger menu carries the full grouped nav. Labels get `whitespace-nowrap` with tighter `space-x-2` spacing and the org-name chip only shows at `2xl`, freeing the width the link row needs at 1280.
+
+Tests: **426 green** (3 new, `NavigationTest`). pint clean, phpstan clean, assets built.
+
+## Post-Phase 15 — Branding: powered-by footer + dynamic company name (shipped)
+
+User-requested: "fix the main landing page ... in the bottom show powered by zecovex ... in the main dashboard show in bottom as powered by zecovex | {Company Name} ... in the replace of EmployeeSaaS show created company name, this will be dynamic as company name given from the setting."
+
+- ✅ **Landing + app footers** — `welcome.blade.php`'s stock "Laravel v… (PHP v…)" footer now reads "Powered by Zecovex" and the landing title uses `config('app.name')`; `.env` `APP_NAME` fixed from `Laravel` to `EmployeeSaaS` so browser titles (landing + every app tab) and the mail from-name carry the product name. `layouts/app.blade.php` gains a bottom footer "Powered by Zecovex | {Company Name}" on every authenticated page — company = the shared `$currentOrganization` (Settings → organization name), plain "Powered by Zecovex" for org-less platform admins. A `@isset` directive directly after text is not compiled by Blade (`(?<!\w)` boundary), so the footer uses one `{{ isset(...) ? ... : '' }}` expression instead.
+- ✅ **Dynamic navbar brand** — the top-left brand shows the signed-in organization's name instead of the hardcoded "EmployeeSaaS", falling back to `config('app.name')`; the right-side org-name chip is removed because the brand now carries the name (it would have been a duplicate at 2xl).
+- ✅ **Tests** — new `BrandingTest`: the landing shows the powered-by line, the dashboard footer renders "Powered by Zecovex | {company name}", and the brand anchor contains the company name (regex on the rendered HTML).
+
+Tests: **429 green** (3 new, `BrandingTest`). pint clean, phpstan clean, assets built.
+
+## Post-Phase 16 — Notification UI: suitable layout (shipped)
+
+User-requested: "fix the notifications, showing in a slim body, make sure it shows in a suitable form."
+
+- ✅ **Bell dropdown width bug** — `components/dropdown.blade.php` only mapped `width="48"` to `w-48` and passed anything else through raw, so the notifications dropdown's `width="80"` emitted a literal `80` class instead of `w-80`. With no width class the panel shrink-wrapped against the small trigger container — a slim, unusable strip. The match now maps `48 → w-48` and `80 → w-80` as explicit string literals (Tailwind's extractor must see the classes in source — a dynamic `'w-'.$width` would have dropped both from the build) while keeping the raw passthrough for custom class names.
+- ✅ **Notification center body** — `notifications/index.blade.php` used `max-w-3xl` (768px) under the full-width header, unlike every other list page. It now uses the standard `max-w-7xl` + `space-y-6` container; rows drop the invalid `block flex` display combo, the text column is capped at `max-w-3xl` for readable line lengths, and the Open / Mark-read action is pinned right (`ms-auto shrink-0`).
+- ✅ **Test** — `NotificationTest::test_notification_ui_uses_a_suitable_layout` pins the wide container and the `w-80` dropdown panel.
+
+Tests: **430 green** (1 new, `NotificationTest`). pint clean, phpstan clean, assets built.
+
+## Post-Phase 17 — Per-org email (SMTP) settings (shipped)
+
+User-requested: "in setting build emails features like, webmail can work if admin put smtp, ssl/tsl, username/password and so on."
+
+- ✅ **Settings → Email page** — new `settings/email` routes (`mail-settings.edit|update|test`, `settings.manage`) with an "Email" entry in the Settings ▾ nav and on the settings tab strips. Admins configure their own mail/webmail SMTP server: enabled toggle, host, port, encryption (TLS/SSL/none), username, password (stored `encrypt()`ed, blank keeps the stored one), from address + from name — all in `organizations.settings` under `mail_*` keys, audited as `mail.settings_updated` (password logged as `[rotated]`/`[unchanged]`). A "Send test email" button delivers `App\Notifications\MailTest` (mail channel only) to the acting admin.
+- ✅ **Runtime application** — `App\Services\MailSettings::apply()` overrides `mail.default` → `smtp` plus host/port/scheme/credentials/from identity when the org has SMTP enabled. It is invoked automatically by a `NotificationSending` listener (AppServiceProvider) on **every mail-channel send**, resolving the notifiable's organization — covering all `OrganizationNotification` subclasses (leave, payroll, security…), future queued sends, and Laravel's default `ResetPassword` notification; non-mail channels and org-less platform admins are untouched. `Organization::settingsArray()` (new typed accessor — the raw `settings` attribute is the JSON column string) keeps the new code phpstan-clean without baseline entries.
+- ✅ **Tests** — new `MailSettingsTest` (9): RBAC gate, save + encrypted password + audit, blank-password keep, validation, `apply()` override/fallback (config restored in `finally`), listener channel filtering, test-send notify + host-required, tenant isolation.
+- ✅ **Post-launch fix (user-reported "mail test failed")** — the SSL option set `scheme: ssl`, which Symfony's SMTP transport rejects (it only accepts `smtp`/`smtps`; `MailManager` only falls back to port-based `smtps` when the scheme is null). `MailSettings::apply()` now maps `ssl → smtps` (implicit TLS, port 465) and `tls`/`none → smtp` (STARTTLS), and the test-send action catches transport exceptions and surfaces them as a friendly `ValidationException` ("SMTP test failed: …") instead of a raw 500. `MailSettingsTest` gains a regression test that resolves the actual Symfony transport for each encryption choice (`Mail::mailer('smtp')` after `forgetMailers()`), plus the scheme assertion now expects `smtps`.
+
+Tests: **440 green** (10 new, `MailSettingsTest`). pint clean, phpstan clean, assets built.
+
+## Post-Phase 18 — Per-feature email allow/deny (shipped)
+
+User-requested: "in the email section allow/disallow section create and admin can select in which feature they need email send features. like 2fa, monthly progress, leave, wornings, notice etc, add more as you think can be need in future."
+
+- ✅ **Feature checklist** — Settings → Email gains a "Which emails should be sent?" fieldset (12 keys, `MailSettings::FEATURES`): `leave` (decisions), `leave_notices` (reviewer notes), `attendance` (corrections & late arrivals), `overtime` (detected/staged/decisions), `salary` (updates & payslips), `monthly_progress` (score & status), `risk` (warnings & risk alerts), `employment` (status changes), `security` (password alerts), `nfc` (card changes), `support` (tickets), `password_resets` (Laravel's default reset mail). Saved as `organizations.settings.mail_features` (array of enabled keys) on the same PUT as the SMTP fields, validated against the const, and audited as part of `mail.settings_updated` (old/new feature lists included). Defaults: **never configured = everything on**; saved-but-empty = everything off.
+- ✅ **Channel-level enforcement** — `OrganizationNotification::featureKey()` defaults to the notification's `group()`; classes sharing a group get explicit overrides (`LeaveNoticeAdded → leave_notices`, the four `Overtime* → overtime`, `HighRiskAttendance → risk`, `MonthlyStatusReady → monthly_progress`, `SupportTicketCreated → support`, `MailTest → null` = never gated). The existing `NotificationSending` listener (AppServiceProvider) resolves the key via `MailSettings::featureKeyFor()` (special-cases Laravel's `ResetPassword → password_resets`) and **returns `false` when the feature is disabled — cancelling only the mail channel**; the database/in-app notification still goes out, and SMTP `apply()` runs only for allowed sends.
+- ✅ **UI/UX** — checkbox grid (2 cols at `sm`) with plain-language labels and a hint that in-app notifications are always delivered; `old()` re-checks on validation failure; error slots for the array keys.
+- ✅ **Tests** — `MailSettingsTest` +6 (→16): save subset + audit, unknown-key validation (`mail_features.1`), listener cancel contract (`until()` → `false` for disabled mail, `null` for database channel and for `MailTest`), per-notification key resolution (5 classes incl. `ResetPassword`/`MailTest`), `resolvedFeatures()` defaults/subset, page renders the checklist. One fixture note: refreshing the actor's `organization` relation (`unsetRelation`) after updating settings in-test, otherwise the listener reads the stale cached org.
+
+Tests: **446 green** (6 new, `MailSettingsTest` → 16). pint clean, phpstan clean, assets built.
+
+## Post-Phase 19 — Dashboard hover drill-downs + profile photo/phone (shipped)
+
+User-requested: advanced admin dashboard with hover drill-downs on every stat card + full admin profile customization (photo upload, phone).
+
+- ✅ **Hover drill-downs** — new `<x-hover-panel>` component (Alpine open/close + viewport horizontal clamp, rows rendered server-side so they are in the DOM before hover, `+N more` footer when capped): all 15 admin stat tiles (present/late/absent/on-leave today, 7-day avg attendance, employee/user counts + department mix, avg score bands, at-risk list, high-risk alerts, overtime today/pending/month) and the 5 employee month tiles (present/late/absent/leave days + leave balance by type) open a panel listing the underlying rows — names, arrival times (`Arrived 09:03`), late minutes, leave types, per-day date lists. `DashboardController::admin()` gained a `$drilldowns` array (aggregates via `getAttribute('total')`, Carbon::parse on date attributes, `employee.user:id,name` eager loads) passed to the view; `employee()` gained the per-day/balance sets. The attendance container and stat cards dropped `overflow-hidden` so panels are not clipped.
+- ✅ **Profile photo & phone** — `users` gains `avatar_path` + `phone` (30); `PUT profile` (`profile.update`, self-service, no permission key) validates `avatar` (`image|max:2048`) + `phone` (`max:30`) + `avatar_remove`, stores photos on the public disk under `avatars/`, deletes replaced/removed files, audits `profile.updated` (old/new phone + path). The profile page gains a "Photo & phone" card (Alpine FileReader live preview, remove checkbox, status banner); the nav renders `<x-avatar>` (uploaded photo or indigo initials fallback, sm/md/lg sizes) in the desktop user menu and the mobile block.
+- ✅ **Tests** — new `DashboardDrilldownTest` (4: present rows + arrival time in viewData and HTML, leave type rows, employee per-day tiles, balance-by-type) and `ProfilePhotoTest` (6: real 1×1 PNG upload + phone + audit row, non-image rejection, remove deletes the stored file, phone-only update keeps the photo, employee-role self-service + nav shows `storage/avatars/`, guest redirect).
+
+Tests: **456 green** (10 new). pint clean, phpstan clean, assets built.
+
 ## Standing decisions (locked)
 
 | Decision | Choice |

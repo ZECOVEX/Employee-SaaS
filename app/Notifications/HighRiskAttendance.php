@@ -58,6 +58,11 @@ class HighRiskAttendance extends OrganizationNotification
         return 'attendance';
     }
 
+    public function featureKey(): ?string
+    {
+        return 'risk';
+    }
+
     public function actionUrl(): ?string
     {
         return $this->audience === 'employee'

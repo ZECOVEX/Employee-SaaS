@@ -47,6 +47,11 @@ class MonthlyStatusReady extends OrganizationNotification
         return 'attendance';
     }
 
+    public function featureKey(): ?string
+    {
+        return 'monthly_progress';
+    }
+
     public function actionUrl(): ?string
     {
         return route('statistics.index');

@@ -93,7 +93,7 @@ class LiveAttendanceController extends Controller
     private function organization(Request $request): Organization
     {
         $organization = $request->user()->organization;
-        abort_unless($organization, 403);
+        abort_unless($organization !== null, 403);
 
         return $organization;
     }

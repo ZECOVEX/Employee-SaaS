@@ -19,6 +19,26 @@ class Organization extends Model
         ];
     }
 
+    /**
+     * organization.settings as a plain array. The raw attribute holds the
+     * JSON-encoded column value, so decode it defensively — callers (and
+     * static analysis) always get an array here.
+     *
+     * @return array<string, mixed>
+     */
+    public function settingsArray(): array
+    {
+        $raw = $this->getAttributes()['settings'] ?? null;
+
+        if (is_string($raw)) {
+            $decoded = json_decode($raw, true);
+
+            return is_array($decoded) ? $decoded : [];
+        }
+
+        return is_array($raw) ? $raw : [];
+    }
+
     public function users(): HasMany
     {
         return $this->hasMany(User::class);
@@ -63,6 +83,16 @@ class Organization extends Model
         $format = $this->settings['time_format'] ?? '24h';
 
         return in_array($format, ['24h', '12h'], true) ? $format : '24h';
+    }
+
+    /**
+     * Self-report attendance toggle (terminal-down fallback): when on,
+     * employees may submit their own check-in/check-out time once per day
+     * from the My Attendance page. Off by default.
+     */
+    public function selfAttendanceEnabled(): bool
+    {
+        return (bool) ($this->settings['self_attendance_enabled'] ?? false);
     }
 
     /**

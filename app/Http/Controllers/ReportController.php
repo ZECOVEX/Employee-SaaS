@@ -514,7 +514,7 @@ class ReportController extends Controller
             $row = [
                 $record->employee?->user?->name ?? '',
                 $record->employee?->employee_code ?? '',
-                $record->employee?->department?->name ?? '',
+                (string) (data_get($record, 'employee.department.name') ?? ''),
                 $record->work_date->toDateString(),
                 $record->day_type,
                 $record->raw_minutes,

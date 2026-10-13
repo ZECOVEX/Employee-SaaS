@@ -1,4 +1,8 @@
 <div class="flex items-center gap-5 text-sm">
+    <a href="{{ route('analytics.index') }}"
+       @class(['font-medium', 'text-indigo-600' => $active === 'analytics', 'text-gray-500 hover:text-gray-800' => $active !== 'analytics']) wire:navigate>
+        Analytics
+    </a>
     <a href="{{ route('reports.attendance') }}"
        @class(['font-medium', 'text-indigo-600' => $active === 'attendance', 'text-gray-500 hover:text-gray-800' => $active !== 'attendance']) wire:navigate>
         Attendance

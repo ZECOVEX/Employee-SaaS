@@ -340,6 +340,76 @@ class AttendanceController extends Controller
             ->orderBy('date')
             ->get();
 
-        return view('attendance.employee', compact('employee', 'records', 'month'));
+        $selfAttendanceEnabled = $employee->organization?->selfAttendanceEnabled() ?? false;
+        $canSelfReport = $user->id === $employee->user_id && $selfAttendanceEnabled;
+
+        $selfReportedIn = null;
+        $selfReportedOut = null;
+
+        if ($canSelfReport) {
+            $today = now($employee->organization->timezone)->toDateString();
+            $todaySelf = AttendanceEvent::withoutGlobalScopes()
+                ->where('employee_id', $employee->id)
+                ->whereNull('superseded_by')
+                ->whereNull('deleted_at')
+                ->where('source', 'self')
+                ->whereDate('occurred_at', $today)
+                ->get();
+
+            $inEvent = $todaySelf->firstWhere('event_type', AttendanceEvent::MANUAL_IN);
+            $outEvent = $todaySelf->firstWhere('event_type', AttendanceEvent::MANUAL_OUT);
+            $selfReportedIn = $inEvent instanceof AttendanceEvent
+                ? Carbon::parse($inEvent->occurred_at)->format('H:i')
+                : null;
+            $selfReportedOut = $outEvent instanceof AttendanceEvent
+                ? Carbon::parse($outEvent->occurred_at)->format('H:i')
+                : null;
+        }
+
+        return view('attendance.employee', compact('employee', 'records', 'month', 'canSelfReport', 'selfReportedIn', 'selfReportedOut'));
+    }
+
+    /**
+     * Employee self-report of their own check-in / check-out time — the
+     * fallback for a broken NFC terminal (one submission per direction
+     * per day, immutable after submit).
+     */
+    public function selfReport(Request $request): RedirectResponse
+    {
+        /** @var Employee|null $employee */
+        $employee = Employee::where('user_id', $request->user()->id)->first();
+
+        if ($employee === null || ! ($employee->organization?->selfAttendanceEnabled() ?? false)) {
+            abort(404);
+        }
+
+        $data = $request->validate([
+            'direction' => ['required', Rule::in(['in', 'out'])],
+            'time' => ['required', 'date_format:H:i'],
+        ]);
+
+        $tz = $employee->organization->timezone;
+        $today = now($tz)->toDateString();
+        $occurredAt = Carbon::createFromFormat('Y-m-d H:i', $today.' '.$data['time'], $tz);
+
+        if ($occurredAt->isFuture()) {
+            throw ValidationException::withMessages([
+                'time' => 'You cannot report a time in the future.',
+            ]);
+        }
+
+        $result = $this->attendance->recordSelfReport($employee, $data['direction'], $occurredAt, $request->user()->id);
+
+        $this->audit->log('attendance.self_reported', $result['event'], null, [
+            'employee_id' => $employee->id,
+            'event_type' => $result['event']->event_type,
+            'occurred_at' => Carbon::parse($result['event']->occurred_at)->toIso8601String(),
+        ]);
+
+        return redirect()
+            ->route('attendance.employee', ['employee' => $employee->id])
+            ->with('status', $data['direction'] === 'in'
+                ? 'Check-in reported. A self-reported entry cannot be changed — contact an administrator if it is wrong.'
+                : 'Check-out reported. A self-reported entry cannot be changed — contact an administrator if it is wrong.');
     }
 }

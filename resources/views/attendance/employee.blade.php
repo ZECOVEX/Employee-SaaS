@@ -13,7 +13,66 @@
     </x-slot>
 
     <div class="py-12">
-        <div class="max-w-5xl mx-auto sm:px-6 lg:px-8">
+        <div class="max-w-5xl mx-auto sm:px-6 lg:px-8 space-y-6">
+            @if (session('status'))
+                <div class="bg-green-50 border border-green-200 text-green-800 text-sm rounded-md px-4 py-3">
+                    {{ session('status') }}
+                </div>
+            @endif
+
+            @if ($canSelfReport)
+                <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
+                    <div class="p-6">
+                        <h3 class="text-sm font-semibold text-gray-800">Report attendance (terminal fallback)</h3>
+                        <p class="mt-1 text-xs text-gray-500">
+                            Use this only if the NFC terminal is unavailable. You may report one check-in and one
+                            check-out per day. A self-reported entry cannot be edited afterwards — contact an
+                            administrator if it is wrong.
+                        </p>
+
+                        <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <form method="POST" action="{{ route('attendance.selfReport') }}" class="space-y-2">
+                                @csrf
+                                <input type="hidden" name="direction" value="in">
+                                <label class="block text-xs font-medium text-gray-600">Check-in time</label>
+                                <div class="flex items-center gap-2">
+                                    <input type="time" name="time" value="{{ old('time', now($employee->organization?->timezone ?? 'UTC')->format('H:i')) }}" required
+                                           class="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm text-sm" />
+                                    <button type="submit" @disabled($selfReportedIn !== null)
+                                            class="px-3 py-2 bg-indigo-600 rounded-md text-xs font-semibold text-white uppercase disabled:opacity-40">
+                                        Report in
+                                    </button>
+                                </div>
+                                @if ($selfReportedIn !== null)
+                                    <p class="text-xs text-gray-500">Reported at {{ $selfReportedIn }} — locked.</p>
+                                @else
+                                    <x-input-error :messages="$errors->get('time')" class="mt-1" />
+                                @endif
+                            </form>
+
+                            <form method="POST" action="{{ route('attendance.selfReport') }}" class="space-y-2">
+                                @csrf
+                                <input type="hidden" name="direction" value="out">
+                                <label class="block text-xs font-medium text-gray-600">Check-out time</label>
+                                <div class="flex items-center gap-2">
+                                    <input type="time" name="time" value="{{ old('time', now($employee->organization?->timezone ?? 'UTC')->format('H:i')) }}" required
+                                           class="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm text-sm" />
+                                    <button type="submit" @disabled($selfReportedOut !== null)
+                                            class="px-3 py-2 bg-indigo-600 rounded-md text-xs font-semibold text-white uppercase disabled:opacity-40">
+                                        Report out
+                                    </button>
+                                </div>
+                                @if ($selfReportedOut !== null)
+                                    <p class="text-xs text-gray-500">Reported at {{ $selfReportedOut }} — locked.</p>
+                                @else
+                                    <x-input-error :messages="$errors->get('time')" class="mt-1" />
+                                @endif
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            @endif
+
             <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
                 <table class="min-w-full divide-y divide-gray-200 text-sm">
                     <thead class="bg-gray-50">

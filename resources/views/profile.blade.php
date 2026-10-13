@@ -7,11 +7,125 @@
 
     <div class="py-12">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
+            @php
+                // Post-Phase 20 — role-scoped profile editing, one @php block:
+                // identity editors manage photo/phone; employees manage their
+                // emergency contact (synced to the employee record admins see).
+                $profileUser = auth()->user();
+                $canEditIdentity = $profileUser->is_platform_admin || $profileUser->canPermission('employees.edit');
+                $employeeProfile = $profileUser->employee;
+                $recentLogins = $profileUser->loginHistory()->limit(5)->get();
+            @endphp
             <div class="p-4 sm:p-8 bg-white shadow sm:rounded-lg">
                 <div class="max-w-xl">
                     <livewire:profile.update-profile-information-form />
                 </div>
             </div>
+
+            @if ($canEditIdentity)
+                <div class="p-4 sm:p-8 bg-white shadow sm:rounded-lg">
+                    <div class="max-w-xl" x-data="{ preview: null }">
+                        <h3 class="text-lg font-medium text-gray-900">Photo &amp; phone</h3>
+                        <p class="mt-1 text-sm text-gray-600">
+                            Upload a profile photo (JPG or PNG, max 2 MB) and a contact phone number.
+                            The photo appears next to your name across the app.
+                        </p>
+
+                        @if (session('status') === 'profile-updated')
+                            <p class="mt-3 rounded-md bg-green-50 p-3 text-sm text-green-700">
+                                Profile updated.
+                            </p>
+                        @endif
+
+                        <form method="POST" action="{{ route('profile.update') }}" enctype="multipart/form-data" class="mt-6 space-y-6">
+                            @csrf
+                            @method('PUT')
+
+                            <div class="flex items-center gap-4">
+                                <template x-if="preview">
+                                    <img :src="preview" alt="Avatar preview" class="h-20 w-20 rounded-full object-cover" />
+                                </template>
+                                <template x-if="! preview">
+                                    <x-avatar size="lg" />
+                                </template>
+
+                                <div class="flex-1 space-y-2">
+                                    <input type="file" name="avatar" accept="image/*" x-ref="avatarInput"
+                                           @@change="preview = $refs.avatarInput.files.length ? URL.createObjectURL($refs.avatarInput.files[0]) : null"
+                                           class="block w-full text-sm text-gray-600" data-test="avatar-input" />
+                                    <x-input-error class="mt-0" :messages="$errors->get('avatar')" />
+
+                                    @if ($profileUser->avatar_path)
+                                        <label class="flex items-center gap-2 text-sm text-gray-600">
+                                            <input type="checkbox" name="avatar_remove" value="1"
+                                                   class="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500" />
+                                            Remove current photo
+                                        </label>
+                                    @endif
+                                </div>
+                            </div>
+
+                            <div>
+                                <x-input-label for="phone" value="Phone" />
+                                <x-text-input id="phone" name="phone" type="text" class="mt-1 block w-full"
+                                              :value="old('phone', $profileUser->phone)" placeholder="+1 555 0100"
+                                              autocomplete="tel" data-test="phone-input" />
+                                <x-input-error class="mt-2" :messages="$errors->get('phone')" />
+                            </div>
+
+                            <x-primary-button data-test="profile-save">Save</x-primary-button>
+                        </form>
+                    </div>
+                </div>
+            @else
+                <div class="p-4 sm:p-8 bg-white shadow sm:rounded-lg">
+                    <div class="max-w-xl">
+                        <h3 class="text-lg font-medium text-gray-900">Emergency contact</h3>
+                        <p class="mt-1 text-sm text-gray-600">
+                            Your name, email, photo and phone are managed by HR. You can keep your
+                            emergency contact up to date here — it is stored on your employee record,
+                            so administrators see it on your employee profile.
+                        </p>
+
+                        @if (session('status') === 'profile-updated')
+                            <p class="mt-3 rounded-md bg-green-50 p-3 text-sm text-green-700">
+                                Emergency contact updated.
+                            </p>
+                        @endif
+
+                        @if ($employeeProfile)
+                            <form method="POST" action="{{ route('profile.update') }}" class="mt-6 space-y-6">
+                                @csrf
+                                @method('PUT')
+
+                                <div>
+                                    <x-input-label for="emergency_contact_name" value="Contact name" />
+                                    <x-text-input id="emergency_contact_name" name="emergency_contact_name" type="text"
+                                                  class="mt-1 block w-full"
+                                                  :value="old('emergency_contact_name', $employeeProfile->emergency_contact_name)"
+                                                  data-test="ec-name" />
+                                    <x-input-error class="mt-2" :messages="$errors->get('emergency_contact_name')" />
+                                </div>
+
+                                <div>
+                                    <x-input-label for="emergency_contact_phone" value="Contact phone" />
+                                    <x-text-input id="emergency_contact_phone" name="emergency_contact_phone" type="text"
+                                                  class="mt-1 block w-full"
+                                                  :value="old('emergency_contact_phone', $employeeProfile->emergency_contact_phone)"
+                                                  autocomplete="tel" data-test="ec-phone" />
+                                    <x-input-error class="mt-2" :messages="$errors->get('emergency_contact_phone')" />
+                                </div>
+
+                                <x-primary-button data-test="ec-save">Save</x-primary-button>
+                            </form>
+                        @else
+                            <p class="mt-4 rounded-md bg-gray-50 p-3 text-sm text-gray-600" data-test="ec-none">
+                                No employee profile is linked to your account, so there is no emergency contact to edit.
+                            </p>
+                        @endif
+                    </div>
+                </div>
+            @endif
 
             <div class="p-4 sm:p-8 bg-white shadow sm:rounded-lg">
                 <div class="max-w-xl">
@@ -25,10 +139,6 @@
                 </div>
             </div>
 
-            @php
-                $profileUser = auth()->user();
-                $recentLogins = $profileUser->loginHistory()->limit(5)->get();
-            @endphp
             <div class="p-4 sm:p-8 bg-white shadow sm:rounded-lg">
                 <h3 class="text-lg font-medium text-gray-900 mb-1">Security information</h3>
                 <p class="text-sm text-gray-600 mb-4">

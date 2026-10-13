@@ -5,6 +5,7 @@ use App\Services\AuditLogger;
 use App\Services\Mfa\MfaService;
 use App\Services\Mfa\TotpService;
 use BaconQrCode\Renderer\Image\SvgImageBackEnd;
+use BaconQrCode\Renderer\ImageRenderer;
 use BaconQrCode\Renderer\RendererStyle\RendererStyle;
 use BaconQrCode\Writer;
 use Illuminate\Support\Facades\Auth;
@@ -170,7 +171,7 @@ new class extends Component
                     <p class="text-sm text-gray-700">Scan this QR code with your authenticator app (or enter the secret manually), then confirm with the 6-digit code it shows.</p>
 
                     <div class="inline-block p-3 bg-white border rounded-lg" wire:poll.5s>
-                        {!! $qrSvg() !!}
+                        {!! $this->qrSvg() !!}
                     </div>
 
                     <p class="font-mono text-sm text-gray-700 select-all">{{ $secret }}</p>

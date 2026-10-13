@@ -32,6 +32,16 @@ abstract class OrganizationNotification extends Notification
     /** Group key: leave | attendance | security | salary | nfc. */
     abstract public function group(): string;
 
+    /**
+     * Post-Phase 18 — email feature toggle key (Settings → Email). Defaults
+     * to the group; classes sharing a group (e.g. all overtime mails) can
+     * override. Return null to always allow the email (e.g. MailTest).
+     */
+    public function featureKey(): ?string
+    {
+        return $this->group();
+    }
+
     /** Optional CTA target; null renders the email without a button. */
     public function actionUrl(): ?string
     {
@@ -50,7 +60,7 @@ abstract class OrganizationNotification extends Notification
     }
 
     /**
-     * @return array{title: string, body: string, group: string}
+     * @return array{title: string, body: string, group: string, url: ?string}
      */
     public function toArray(object $notifiable): array
     {
@@ -58,6 +68,7 @@ abstract class OrganizationNotification extends Notification
             'title' => $this->title(),
             'body' => $this->body(),
             'group' => $this->group(),
+            'url' => $this->actionUrl(),
         ];
     }
 

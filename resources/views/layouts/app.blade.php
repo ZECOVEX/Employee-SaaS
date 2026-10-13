@@ -51,6 +51,13 @@
             <main>
                 {{ $slot }}
             </main>
+
+            <!-- Footer -->
+            <footer class="py-6">
+                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-xs text-gray-400">
+                    Powered by Zecovex{{ isset($currentOrganization) ? ' | '.$currentOrganization->name : '' }}
+                </div>
+            </footer>
         </div>
     </body>
 </html>
