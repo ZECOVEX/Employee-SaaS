@@ -31,7 +31,7 @@ All tenant tables carry `organization_id` (FK → organizations, cascade delete)
 ## Organization tables
 - **departments** — `organization_id`, `name`, `code` (unique per org), `manager_id` (FK users, nullable)
 - **positions** — `organization_id`, `department_id` (nullable FK departments, nullOnDelete), `title` (unique per org, validated in the Positions admin UI; no `code` column)
-- **employees** — `organization_id`, `user_id` (nullable), `employee_code` (unique per org), `department_id` (nullable), `designation`, `employment_type`, `status`, `joining_date`, `left_date`, `phone`, `address`, `date_of_birth`, `gender`, `salary` (decimal, hidden from index UI in Phase 1), `photo_path` (nullable; `image|max:2048` upload stored on the `public` disk under `employees/{id}/`)
+- **employees** — `organization_id`, `user_id` (nullable), `employee_code` (unique per org), `department_id` (nullable), `designation`, `employment_type`, `status`, `joining_date`, `left_date`, `phone`, `address`, `date_of_birth`, `gender`, `emergency_contact_name` (nullable, 120), `emergency_contact_phone` (nullable, 32) — editable by admins on the employee form **and** by the employee themselves on the profile page (Post-Phase 20, writes here so admins see it), `salary` (decimal, hidden from index UI in Phase 1), `photo_path` (nullable; `image|max:2048` upload stored on the `public` disk under `employees/{id}/`)
 - **audit_logs** — `organization_id`, `actor_user_id`, `action`, `resource_type`, `resource_id`, `old_value` (json), `new_value` (json), `ip_address`, `user_agent`, `created_at`
 
 ## Phase 2 — Workforce tables
