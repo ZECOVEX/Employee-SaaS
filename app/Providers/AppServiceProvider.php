@@ -10,7 +10,9 @@ use App\Models\ScimToken;
 use App\Models\User;
 use App\Services\MailSettings;
 use App\Services\RoleSeederService;
+use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Notifications\Events\NotificationSending;
+use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
@@ -26,6 +28,28 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // Post-Phase 22 — brand Laravel's default password-reset email with
+        // the recipient's organization name instead of config('app.name')
+        // ("Regards, EmployeeSaaS" → "Regards, Zecovex"). The message is a
+        // copy of ResetPassword::buildMailMessage with a salutation set.
+        ResetPassword::toMailUsing(function (object $notifiable, string $token): MailMessage {
+            $expire = (int) config('auth.passwords.'.config('auth.defaults.passwords').'.expire');
+            $email = method_exists($notifiable, 'getEmailForPasswordReset')
+                ? $notifiable->getEmailForPasswordReset()
+                : (string) data_get($notifiable, 'email');
+
+            return (new MailMessage)
+                ->subject('Reset your password')
+                ->line('You are receiving this email because we received a password reset request for your account.')
+                ->action('Reset Password', url(route('password.reset', [
+                    'token' => $token,
+                    'email' => $email,
+                ], false)))
+                ->line(__('This password reset link will expire in :count minutes.', ['count' => $expire]))
+                ->line('If you did not request a password reset, no further action is required.')
+                ->salutation('Regards, '.MailSettings::brandFor($notifiable));
+        });
+
         // Phase 8 — API keys and SCIM tokens authenticate through dedicated
         // request guards so they can share middleware stacks with sanctum.
         Auth::viaRequest('apikey', fn ($request) => ApiKey::resolveFromRequest($request));

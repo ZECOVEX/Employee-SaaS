@@ -416,6 +416,9 @@ Route::middleware(['auth', 'verified', 'organization', 'company'])
         // Post-Phase 19 — profile customization: avatar upload + contact phone.
         Route::put('profile', [ProfileController::class, 'update'])
             ->name('profile.update');
+        // Post-Phase 21 — opt-in login-alert emails (IP, location, device).
+        Route::post('profile/login-alerts', [ProfileController::class, 'loginAlerts'])
+            ->name('profile.login-alerts');
     });
 
 // §43 — privacy policy (public, no auth): discloses IP-derived location

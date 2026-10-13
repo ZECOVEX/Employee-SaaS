@@ -50,10 +50,12 @@ class User extends Authenticatable
             'is_platform_admin' => 'boolean',
             'last_login_at' => 'datetime',
             // Phase 8 — TOTP MFA: secret encrypted at rest, recovery codes a
-            // json list of sha256 hashes.
+            // json list of sha256 hashes. Post-Phase 21 — mfa_method picks
+            // authenticator app ('totp') vs email codes ('email').
             'mfa_secret' => 'encrypted',
             'mfa_enabled' => 'boolean',
             'mfa_recovery_codes' => 'array',
+            'login_alerts_enabled' => 'boolean',
             // §43 — admin-controlled deactivation blocks login until cleared.
             'deactivated_at' => 'datetime',
         ];

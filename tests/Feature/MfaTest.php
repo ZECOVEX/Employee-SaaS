@@ -143,6 +143,57 @@ class MfaTest extends TestCase
         $this->get(route('mfa.challenge'))->assertRedirect(route('login'));
     }
 
+    public function test_stale_challenge_bounces_when_mfa_was_disabled_after_staging(): void
+    {
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
+        $user = $this->makeUser($org, 'company_admin', $roles, ['password' => 'password']);
+
+        $mfa = app(MfaService::class);
+        $secret = $mfa->beginSetup($user);
+        $mfa->confirmSetup($user, TotpService::codeAt($secret));
+
+        Volt::test('pages.auth.login')
+            ->set('form.email', $user->email)
+            ->set('form.password', 'password')
+            ->call('login');
+
+        $this->assertSame($user->id, session(MfaService::CHALLENGE_SESSION_KEY));
+
+        // MFA is turned off (profile disable, admin, or support) while the
+        // challenge is staged — the page must not keep asking for a code.
+        $mfa->disable($user);
+
+        Volt::test('pages.auth.mfa-challenge')
+            ->assertRedirect(route('login'));
+
+        $this->assertNull(session(MfaService::CHALLENGE_SESSION_KEY));
+    }
+
+    public function test_login_clears_a_stale_challenge_session_when_mfa_is_off(): void
+    {
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
+        $user = $this->makeUser($org, 'company_admin', $roles, ['password' => 'password']);
+
+        $mfa = app(MfaService::class);
+        $secret = $mfa->beginSetup($user);
+        $mfa->confirmSetup($user, TotpService::codeAt($secret));
+
+        Volt::test('pages.auth.login')
+            ->set('form.email', $user->email)
+            ->set('form.password', 'password')
+            ->call('login');
+
+        $mfa->disable($user);
+
+        Volt::test('pages.auth.login')
+            ->set('form.email', $user->email)
+            ->set('form.password', 'password')
+            ->call('login')
+            ->assertRedirect(route('dashboard', absolute: false));
+
+        $this->assertAuthenticatedAs($user);
+    }
+
     public function test_disable_mfa_requires_password_and_code(): void
     {
         ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();

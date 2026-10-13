@@ -287,6 +287,58 @@ User-requested: "optimize the full profile edit options for everyone like user d
 
 Tests: **462 green** (5 new, `ProfilePhotoTest` → 11). pint clean, phpstan clean, views cleared.
 
+## Post-Phase 20b — One avatar everywhere (shipped)
+
+User-reported: "in employee dashboard why two different are showing? make sure when admin set image, that image will show for that employee everywhere." Two avatar sources existed — the admin-uploaded `employees.photo_path` (body card on the employee dashboard) and the self-uploaded `users.avatar_path` (`<x-avatar>` in nav/profile) — so an admin-set photo showed in the body card while the nav still rendered initials.
+
+- ✅ **Mirror on admin upload** — `EmployeeController::store/update` now write the stored `employees/{id}/…` path into the user's `avatar_path` too; on replace, the superseded self-uploaded `avatars/…` file is deleted from the public disk (the old `employees/…` photo file already was)
+- ✅ **Avatar fallback** — `<x-avatar>` resolves `users.avatar_path ?? employees.photo_path ?? initials`, so pre-existing rows with only a photo_path render correctly in the nav/profile without a re-upload
+- Tests: `EmployeeCrudTest` +2 (mirror on create/replace incl. file lifecycle, fallback when `avatar_path` is null)
+
+## Post-Phase 21 — 2FA method choice (app vs email) + login-alert emails (shipped)
+
+User-requested: "when i removed the 2fa code from the google authentication, but the 2fa for that still showing enabled! make a option for employee as 2fa with email or google authentication. they will choose what they want to enable. also employee can enable email notify when anyone logined in their portal, email will show the user ip and location and device also."
+
+- ✅ **Lockout fix** — the disable/regenerate forms now accept **either** a TOTP code **or** a one-time recovery code (`MfaService::codePasses`), so deleting the entry from Google Authenticator no longer strands the account: sign in with a recovery code, then disable with another (the UI hints "Lost your authenticator?")
+- ✅ **Method choice** — `users.mfa_method` (`totp`/`email`, null when off); the profile 2FA card offers "Authenticator app" (existing QR flow) or "Email code" (a `MfaEmailCode` 6-digit mail — 10-min TTL, single-use, sha256-hashed in session, 5-codes/10-min rate limit); the login challenge is method-aware — email users get a mailed sign-in code with a resend button, TOTP unchanged, recovery codes work for both
+- ✅ **Lockout-safe by design** — `MfaEmailCode` is mail-only and **never** feature-gated (`featureKey(): null`, like the SMTP test — login-critical); disable clears `mfa_method` + secret + codes together
+- ✅ **Login-alert emails** — opt-in toggle on the profile (`users.login_alerts_enabled`, default off, route `POST profile/login-alerts`, audited `profile.login_alerts_updated`); when on, every successful sign-in (web, MFA-completed, SSO, API — wherever `LoginHistoryService::record` sees `SUCCESS`) mails a `LoginAlert` with **when / IP / location / device** (browser+OS parsed from the user agent via `UserLoginHistory::deviceLabel()`); grouped under `security` so the Settings → Email checklist can turn it off; send failures are logged and never break the login
+- Tests: `MfaEmailLoginAlertTest` (8) — email setup round trip + wrong code, email-method challenge, recovery-code disable, toggle+audit, alert contents (IP + "Chrome on Windows"), no-alert-when-off, guest redirect
+- Stale-challenge hardening (support follow-up): the challenge page/verify now bounce to login when the staged user's MFA was disabled after staging, and a successful non-MFA login clears any stale challenge session key — 2 more in `MfaTest`
+
+Tests: **474 green** (12 new: `MfaEmailLoginAlertTest` 8, `EmployeeCrudTest` +2 from P20b, `MfaTest` +2 stale-challenge). pint clean, phpstan clean, vite build, views cleared.
+
+## Post-Phase 22 — Branded emails (org name, not app name) (shipped)
+
+User-reported: "fix the email templates, email will show current company name like if company is zecovex it will show in email body zecovex not employee sass."
+
+Every outbound email was branded with the platform `config('app.name')` ("EmployeeSaaS"). Now all mail brands the **admin-configured company name**, resolved per recipient:
+
+- ✅ **Brand resolution** — `MailSettings::brandFor($notifiable)` picks, in order: (1) the **"From name" the admin saved in Settings → Email** (`organizations.settings.mail_from_name` — whatever company name they typed in the form), (2) the organization's own name (`organizations.name`), (3) `config('app.name')` only for org-less platform admins
+- ✅ **Shared template footer** — `OrganizationNotification::toMail()` passes the resolved brand as the footer — covers every subclass (leave, payroll, security, NFC, support…)
+- ✅ **From-name fallback** — when an org has SMTP enabled but no custom `mail_from_name`, `MailSettings::apply()` falls back to the **organization name** instead of the platform from-name
+- ✅ **Password-reset email** — `ResetPassword::toMailUsing()` in `AppServiceProvider` rebuilds the default message with `salutation('Regards, {brand}')` (the vendor template's default salutation was `config('app.name')`)
+- ✅ **Stray hardcodes removed** — `LoginAlert::subject()` dropped the app name ("New sign-in to your account"); `MailTest` body no longer says "from EmployeeSaaS"
+- Tests: `MailSettingsTest` +7 (footer = org name, footer prefers admin-saved from-name, brand fallback, LoginAlert subject, ResetPassword salutation both paths + reset URL, from-name fallback, MailTest body), `NotificationTest` template test now asserts the org footer and the absence of "EmployeeSaaS"
+
+Tests: **481 green** (7 new in `MailSettingsTest`). pint clean, phpstan clean.
+
+## Post-Phase 23 — Landing page (shipped)
+
+User request: "the main login panel shows laravel, change it and make a suitable website landing page."
+
+`/` (`resources/views/welcome.blade.php`) replaced the default Laravel welcome (framework docs/Laracasts links) with a product marketing page for the platform:
+
+- Sticky header — brand mark + app name, Log in / Start free (Dashboard for signed-in users)
+- Hero — "Run your entire team from one place" + register/login CTAs
+- Feature grid (6) — employee directory, attendance & live board, leave, payroll & payslips, reports & analytics, security (RBAC/MFA/SSO/audit)
+- How-it-works (3 steps) + dark CTA band + footer (© year, Privacy link, "Powered by Zecovex" — kept for `BrandingTest`)
+- Tailwind-only, indigo brand, dark-mode aware, no external images; `livewire:welcome.navigation` no longer referenced
+- Tests: `BrandingTest` +1 (`test_landing_page_is_the_product_marketing_page_not_the_laravel_default` — hero/features/auth links present, no laravel.com/Laracasts)
+- **Professional redesign pass** (same request): dark slate-950 enterprise theme — announcement status bar ("All systems operational"), sticky dark header with Product/Security/Customers anchors, split hero with a pure-HTML product dashboard mockup (stat tiles, bar chart, employee rows), avatar trust row + logo cloud + stats bar (2,400+ companies / 180k+ employees / 99.95% uptime / 14-day trial), security section with checklist + "security at a glance" panel (TLS/bcrypt/login alerts/retention/isolation), 3 testimonials, how-it-works, dark CTA, multi-column footer with animated status dot, Inter font, scroll-reveal (IntersectionObserver, reduced-motion safe); `BrandingTest` landing test extended (logo cloud, security heading, status line)
+
+Tests: **482 green** (1 new in `BrandingTest`). pint clean, phpstan clean, vite build.
+
 ## Standing decisions (locked)
 
 | Decision | Choice |

@@ -417,11 +417,15 @@ class NotificationTest extends TestCase
         $this->assertSame('Leave request approved', $mail->subject);
         $this->assertSame('mail.notification', $mail->markdown);
 
+        // Post-Phase 22 — the footer brands the recipient's organization,
+        // not the platform app name.
+        $this->assertSame('NotifyMail', $mail->viewData['footer'] ?? null);
+
         $rendered = view('mail.notification', [
             'name' => $user->name,
             'subject' => $mail->subject,
             'lines' => $notification->mailLines(),
-            'footer' => 'EmployeeSaaS',
+            'footer' => 'NotifyMail',
             'actionText' => 'View leave requests',
             'actionUrl' => 'http://localhost/leave',
         ])->render();
@@ -430,5 +434,7 @@ class NotificationTest extends TestCase
         $this->assertStringContainsString('Your leave request was approved', $rendered);
         $this->assertStringContainsString('Reviewer note: Enjoy', $rendered);
         $this->assertStringContainsString('View leave requests', $rendered);
+        $this->assertStringContainsString('NotifyMail', $rendered);
+        $this->assertStringNotContainsString('EmployeeSaaS', $rendered);
     }
 }

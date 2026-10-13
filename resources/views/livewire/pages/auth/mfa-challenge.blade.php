@@ -4,7 +4,6 @@ use App\Models\User;
 use App\Models\UserLoginHistory;
 use App\Services\Geo\LoginHistoryService;
 use App\Services\Mfa\MfaService;
-use App\Services\Mfa\TotpService;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Str;
@@ -18,10 +17,36 @@ new #[Layout('layouts.guest')] class extends Component
     #[Validate('required|string')]
     public string $code = '';
 
+    public bool $emailMethod = false;
+
     public function mount(): void
     {
-        if (app(MfaService::class)->pendingChallengeUser() === null) {
+        $user = app(MfaService::class)->pendingChallengeUser();
+
+        // Stale challenge: no staged user, or MFA was disabled after the
+        // challenge was staged — bounce to login instead of asking for a code.
+        if ($user === null || ! $user->mfa_enabled) {
+            app(MfaService::class)->clearChallenge();
             $this->redirectRoute('login', navigate: true);
+
+            return;
+        }
+
+        // Post-Phase 21 — email-method users get a 6-digit code mailed here
+        // (the service rate-limits silently on the login path).
+        $this->emailMethod = $user->mfa_method === MfaService::METHOD_EMAIL;
+
+        if ($this->emailMethod) {
+            app(MfaService::class)->sendLoginCode($user);
+        }
+    }
+
+    public function resendCode(): void
+    {
+        $user = app(MfaService::class)->pendingChallengeUser();
+
+        if ($user !== null && $this->emailMethod) {
+            app(MfaService::class)->sendLoginCode($user);
         }
     }
 
@@ -46,6 +71,14 @@ new #[Layout('layouts.guest')] class extends Component
             return;
         }
 
+        // MFA was disabled after this challenge was staged — no code needed.
+        if (! $user->mfa_enabled) {
+            $mfa->clearChallenge();
+            $this->redirectRoute('login', navigate: true);
+
+            return;
+        }
+
         $key = 'mfa:'.Str::lower($user->email).'|'.request()->ip();
 
         if (RateLimiter::tooManyAttempts($key, 5)) {
@@ -56,7 +89,7 @@ new #[Layout('layouts.guest')] class extends Component
             ]);
         }
 
-        $valid = TotpService::verify($user->mfa_secret ?? '', $this->code);
+        $valid = $mfa->verifyChallengeCode($user, $this->code);
 
         if (! $valid) {
             $valid = $mfa->consumeRecoveryCode($user, $this->code);
@@ -86,9 +119,16 @@ new #[Layout('layouts.guest')] class extends Component
 
 <div class="w-full sm:max-w-md mt-6 px-6 py-4 bg-white shadow-md overflow-hidden sm:rounded-lg">
     <h2 class="text-lg font-semibold text-gray-900 mb-1">Two-factor authentication</h2>
-    <p class="text-sm text-gray-600 mb-4">
-        Enter the 6-digit code from your authenticator app, or one of your recovery codes.
-    </p>
+
+    @if ($emailMethod)
+        <p class="text-sm text-gray-600 mb-4">
+            We emailed a 6-digit code to your account address. Enter it below, or use one of your recovery codes.
+        </p>
+    @else
+        <p class="text-sm text-gray-600 mb-4">
+            Enter the 6-digit code from your authenticator app, or one of your recovery codes.
+        </p>
+    @endif
 
     <form wire:submit="verify">
         <div>
@@ -97,12 +137,20 @@ new #[Layout('layouts.guest')] class extends Component
             <x-input-error :messages="$errors->get('code')" class="mt-2" />
         </div>
 
-        <div class="flex items-center justify-end mt-4">
-            <a class="underline text-sm text-gray-600 hover:text-gray-900" href="{{ route('login') }}" wire:navigate>
-                {{ __('Back to login') }}
-            </a>
+        <div class="flex items-center justify-between mt-4">
+            <div class="flex items-center gap-3">
+                <a class="underline text-sm text-gray-600 hover:text-gray-900" href="{{ route('login') }}" wire:navigate>
+                    {{ __('Back to login') }}
+                </a>
 
-            <x-primary-button class="ms-3">
+                @if ($emailMethod)
+                    <button type="button" class="underline text-sm text-gray-600 hover:text-gray-900" wire:click="resendCode">
+                        {{ __('Resend code') }}
+                    </button>
+                @endif
+            </div>
+
+            <x-primary-button>
                 {{ __('Verify') }}
             </x-primary-button>
         </div>

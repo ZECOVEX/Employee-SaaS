@@ -158,11 +158,16 @@ Open http://localhost:8000 — the entrypoint generates `APP_KEY`, caches config
 ### Post-Phase 20 — Role-scoped profile editing
 - **Identity editors keep full control**: users with `employees.edit` (or platform admins) manage their own photo, phone, name and email on the profile page, exactly as before
 - **Employees get an emergency-contact card instead**: name/email/photo/phone are HR-managed; employees update their emergency contact (name + phone) on the profile page — it writes to their employee record (audited `profile.emergency_updated`), so admins immediately see it on the employee profile; 2FA, password and data export remain self-service for everyone
+- **One avatar everywhere (P20b)**: the admin-uploaded employee photo is mirrored into the user's avatar, so it shows in the nav, profile and dashboard body card alike; `<x-avatar>` also falls back to the employee photo for older rows
+
+### Post-Phase 21 — 2FA method choice & login-alert emails
+- **Pick your second factor**: 2FA can use an authenticator app (QR) **or** a 6-digit code emailed on demand — the profile card offers both; the login challenge is method-aware, and recovery codes work either way. Disable/regenerate now also accept a recovery code, so removing the app from Google Authenticator never locks you out
+- **Login alerts**: opt-in toggle on the profile — get an email on every successful sign-in with the IP, approximate location and device (browser + OS); off by default, audited, and toggleable from the Settings → Email security checklist
 
 ## Tests & checks
 
 ```bash
-php artisan test        # 462 tests
+php artisan test        # 482 tests
 composer format         # Pint code style (app tests routes database bootstrap resources)
 composer analyse        # Larastan level 5 (phpstan.neon + baseline)
 composer check          # format + analyse + test

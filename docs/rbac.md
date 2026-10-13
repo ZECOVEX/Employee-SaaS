@@ -105,7 +105,7 @@ Security & enterprise features reuse the catalog (still 30 keys):
 - **Email (SMTP)** (`settings/email`, test-send endpoint, Post-Phase 17 + feature checklist, Post-Phase 18) → `settings.manage`; the `NotificationSending` listener applies the org's saved SMTP config to every mail-channel send (including Laravel's default `ResetPassword`) and cancels the mail channel for features unticked in `mail_features` (in-app notifications unaffected; the test email is never gated)
 - **Role permission editor** (`GET roles`, `GET/PUT roles/{role}`) → `settings.manage`; the `company_admin` role is locked (read-only) server-side regardless of the caller's intent
 - **Audit CSV export** (`GET audit-logs/export`) → rides the existing `audit.view` gate (same as the audit index)
-- **MFA** (`profile` enable/confirm/disable/regenerate, `mfa.challenge`) → self-service; any authenticated user manages their own MFA, the challenge gate blocks login until satisfied
+- **MFA** (`profile` enable/confirm/disable/regenerate, `mfa.challenge`) → self-service; any authenticated user manages their own MFA (authenticator app **or** email codes — Post-Phase 21), the challenge gate blocks login until satisfied
 
 ### API-key & SCIM-token subjects (not `App\Models\User`)
 
@@ -134,6 +134,7 @@ Security & enterprise features reuse the catalog (still 30 keys):
 - **Attendance self-report** (Post-Phase 11) — `POST attendance/self-report` needs no permission key: the controller only ever acts on the signed-in user's own employee record (404 for users without one or when the org toggle is off), one submission per direction per day, immutable afterwards. Admin corrections still require `attendance.manage`.
 - **Profile identity lock** — changing name/email on the profile page requires `employees.edit` (or platform admin); otherwise the fields render disabled with a "managed by HR" note.
 - **Profile photo/phone** (Post-Phase 19/20) — `PUT profile` needs no permission key, but is role-scoped: identity editors (platform admin or `employees.edit`) upload their own photo (public disk, `avatars/`, `image|max:2048`) / set their own phone on their `users` row (audited `profile.updated`); everyone else may only update their **emergency contact** (`emergency_contact_name`/`emergency_contact_phone`, written to their employee record so admins see it on the employee profile, audited `profile.emergency_updated`) — `phone`/`avatar`/`avatar_remove` are `prohibited` for them. 2FA, password and data export stay self-service for every role.
+- **Login alerts** (Post-Phase 21) — `POST profile/login-alerts` needs no permission key: any authenticated user toggles their own opt-in "new sign-in" alert emails (audited `profile.login_alerts_updated`); the mail rides the org's `security` email feature checkbox.
 - **Account deletion** — §43: self-service deletion is **prohibited for every role**; the profile section shows the admin-contact note + the self data-export link. Removal is an admin workflow (`users.manage` → Deactivate or Delete on the Users page).
 - **NFC card history** — `GET nfc-cards/{card}/history` requires `nfc.view`; card replacement (`POST nfc-cards/{card}/replace`) requires `nfc.manage`.
 

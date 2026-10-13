@@ -29,7 +29,7 @@ class MailTest extends OrganizationNotification
     public function mailLines(): array
     {
         return [
-            'This is a test email from EmployeeSaaS.',
+            'This is a test email — your SMTP settings work.',
             'Outgoing email (SMTP) settings for this organization are working.',
         ];
     }

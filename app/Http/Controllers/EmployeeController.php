@@ -166,9 +166,12 @@ class EmployeeController extends Controller
         // never leaves an orphaned file (the form does not offer a photo on
         // create today, but the field is accepted for parity/tests).
         if ($request->hasFile('photo')) {
-            $employee->update([
-                'photo_path' => $request->file('photo')->store('employees/'.$employee->id, 'public'),
-            ]);
+            $newPhotoPath = $request->file('photo')->store('employees/'.$employee->id, 'public');
+            $employee->update(['photo_path' => $newPhotoPath]);
+
+            // Post-Phase 20b — mirror the admin-set photo onto the user row so
+            // <x-avatar> (nav, profile) renders it everywhere for the employee.
+            $employee->user->update(['avatar_path' => $newPhotoPath]);
         }
 
         $this->audit->log('employee.created', $employee, null, [
@@ -371,6 +374,19 @@ class EmployeeController extends Controller
 
             if ($oldPhotoPath) {
                 Storage::disk('public')->delete($oldPhotoPath);
+            }
+
+            // Post-Phase 20b — mirror onto the user row so <x-avatar> (nav,
+            // profile) shows the admin-set photo everywhere; a self-uploaded
+            // avatars/ file is superseded and removed.
+            $previousUserAvatar = $employee->user->avatar_path;
+
+            $employee->user->update(['avatar_path' => $newPhotoPath]);
+
+            if ($previousUserAvatar !== null
+                && $previousUserAvatar !== $oldPhotoPath
+                && $previousUserAvatar !== $newPhotoPath) {
+                Storage::disk('public')->delete($previousUserAvatar);
             }
         }
 

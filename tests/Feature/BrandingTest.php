@@ -18,6 +18,26 @@ class BrandingTest extends TestCase
             ->assertSee('Powered by Zecovex');
     }
 
+    public function test_landing_page_is_the_product_marketing_page_not_the_laravel_default(): void
+    {
+        $response = $this->get('/');
+
+        $response->assertOk()
+            ->assertSee('Run your entire team from')
+            ->assertSee('Trusted by teams worldwide')
+            ->assertSee('Security &amp; compliance', false)
+            ->assertSee('All systems operational')
+            ->assertSee('Employee directory')
+            ->assertSee('Attendance & live board')
+            ->assertSee('Payroll & payslips')
+            ->assertSee(route('login'))
+            ->assertSee(route('register'))
+            ->assertSee(route('privacy'));
+
+        $this->assertStringNotContainsString('laravel.com', $response->getContent());
+        $this->assertStringNotContainsString('Laracasts', $response->getContent());
+    }
+
     public function test_dashboard_footer_shows_powered_by_with_company_name(): void
     {
         ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();

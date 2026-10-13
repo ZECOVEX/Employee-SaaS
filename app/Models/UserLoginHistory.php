@@ -62,4 +62,30 @@ class UserLoginHistory extends Model
 
         return $parts === [] ? '—' : implode(', ', $parts);
     }
+
+    /** Coarse "Chrome on Windows" label parsed from the stored user agent. */
+    public function deviceLabel(): string
+    {
+        $ua = (string) $this->user_agent;
+
+        $browser = match (true) {
+            str_contains($ua, 'Edg') => 'Edge',
+            str_contains($ua, 'OPR') || str_contains($ua, 'Opera') => 'Opera',
+            str_contains($ua, 'Firefox') => 'Firefox',
+            str_contains($ua, 'Chrome') => 'Chrome',
+            str_contains($ua, 'Safari') => 'Safari',
+            default => 'Unknown browser',
+        };
+
+        $os = match (true) {
+            str_contains($ua, 'Windows') => 'Windows',
+            str_contains($ua, 'Android') => 'Android',
+            str_contains($ua, 'iPhone') || str_contains($ua, 'iPad') => 'iOS',
+            str_contains($ua, 'Mac OS X') => 'macOS',
+            str_contains($ua, 'Linux') => 'Linux',
+            default => 'Unknown OS',
+        };
+
+        return $browser.' on '.$os;
+    }
 }

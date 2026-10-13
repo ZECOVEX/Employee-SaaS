@@ -16,6 +16,11 @@
         default => 'h-6 w-6 text-xs',
     };
 
+    // Post-Phase 20b — one image everywhere: the self-uploaded user avatar
+    // wins, then the admin-set employee photo (mirrored on upload), then
+    // initials. Keeps pre-mirror historical rows rendering the admin photo.
+    $avatarPath = $avatarUser?->avatar_path ?? $avatarUser?->employee?->photo_path;
+
     $parts = preg_split('/\s+/', trim((string) ($avatarUser?->name ?? ''))) ?: [];
     $initials = '';
 
@@ -28,9 +33,9 @@
     }
 @endphp
 
-@if ($avatarUser?->avatar_path)
-    <img src="{{ asset('storage/'.$avatarUser->avatar_path) }}"
-         alt="{{ $avatarUser->name }}"
+@if ($avatarPath)
+    <img src="{{ asset('storage/'.$avatarPath) }}"
+         alt="{{ $avatarUser?->name }}"
          {{ $attributes->merge(['class' => $sizeClasses.' rounded-full object-cover']) }} />
 @elseif ($avatarUser)
     <span {{ $attributes->merge(['class' => $sizeClasses.' inline-flex shrink-0 items-center justify-center rounded-full bg-indigo-100 font-semibold text-indigo-700']) }}

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Notifications;
 
+use App\Services\MailSettings;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
@@ -78,7 +79,9 @@ abstract class OrganizationNotification extends Notification
             'name' => $notifiable->name,
             'subject' => $this->subject(),
             'lines' => $this->mailLines(),
-            'footer' => config('app.name'),
+            // Post-Phase 22 — footer carries the recipient's organization
+            // name ("Zecovex"), not the platform app name.
+            'footer' => MailSettings::brandFor($notifiable),
         ];
 
         if ($this->actionUrl() !== null) {

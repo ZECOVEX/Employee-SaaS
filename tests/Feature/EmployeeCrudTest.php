@@ -184,6 +184,84 @@ class EmployeeCrudTest extends TestCase
         $this->assertNull($employee->fresh()->photo_path);
     }
 
+    public function test_admin_uploaded_photo_mirrors_to_user_avatar_and_shows_in_nav(): void
+    {
+        Storage::fake('public');
+
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
+        $admin = $this->makeUser($org, 'company_admin', $roles);
+        $user = $this->makeUser($org, 'employee', $roles, ['email' => 'mirror@acme.test']);
+        $employee = $this->makeEmployee($org, $user, 'EMP-MR1');
+
+        // A self-uploaded avatars/ file is superseded by the admin photo.
+        Storage::disk('public')->put('avatars/self.png', 'x');
+        $user->update(['avatar_path' => 'avatars/self.png']);
+
+        $png = base64_decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+        );
+        $photo = UploadedFile::fake()->createWithContent('photo.png', $png);
+
+        $this->actingAs($admin)
+            ->put(route('employees.update', $employee), [
+                'name' => 'Mirror Person',
+                'email' => 'mirror@acme.test',
+                'status' => 'active',
+                'employment_type' => 'full_time',
+                'photo' => $photo,
+            ])
+            ->assertRedirect(route('employees.show', $employee));
+
+        $employee->refresh();
+        $user->refresh();
+
+        // One image everywhere: the user row points at the admin-set photo.
+        $this->assertSame($employee->photo_path, $user->avatar_path);
+        Storage::disk('public')->assertExists($user->avatar_path);
+        Storage::disk('public')->assertMissing('avatars/self.png');
+
+        // The employee's dashboard (nav avatar + profile card) shows it.
+        $this->actingAs($user)
+            ->get(route('dashboard.employee'))
+            ->assertOk()
+            ->assertSee('storage/employees/');
+
+        // Replacing the photo keeps the mirror in sync and drops the old file.
+        $firstPath = $employee->photo_path;
+        $second = UploadedFile::fake()->createWithContent('photo2.png', $png);
+
+        $this->actingAs($admin)
+            ->put(route('employees.update', $employee), [
+                'name' => 'Mirror Person',
+                'email' => 'mirror@acme.test',
+                'status' => 'active',
+                'employment_type' => 'full_time',
+                'photo' => $second,
+            ])
+            ->assertRedirect(route('employees.show', $employee));
+
+        $this->assertNotSame($firstPath, $employee->refresh()->photo_path);
+        $this->assertSame($employee->photo_path, $user->refresh()->avatar_path);
+        Storage::disk('public')->assertMissing($firstPath);
+        Storage::disk('public')->assertExists($user->avatar_path);
+    }
+
+    public function test_avatar_falls_back_to_employee_photo_when_user_avatar_missing(): void
+    {
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
+        $user = $this->makeUser($org, 'employee', $roles, ['email' => 'legacy@acme.test']);
+        $employee = $this->makeEmployee($org, $user, 'EMP-LG1');
+
+        // Historical row: admin photo set before the Post-Phase 20b mirror
+        // existed — the nav avatar must still render it, not initials.
+        $employee->update(['photo_path' => 'employees/'.$employee->id.'/legacy.png']);
+
+        $this->actingAs($user)
+            ->get(route('dashboard.employee'))
+            ->assertOk()
+            ->assertSee('storage/employees/'.$employee->id.'/legacy.png');
+    }
+
     public function test_employee_index_filters_by_department(): void
     {
         ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();

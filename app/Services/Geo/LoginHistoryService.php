@@ -6,6 +6,7 @@ namespace App\Services\Geo;
 
 use App\Models\User;
 use App\Models\UserLoginHistory;
+use App\Notifications\LoginAlert;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -39,6 +40,19 @@ class LoginHistoryService
                 'last_login_geo_division' => $geo['division'],
                 'last_login_geo_area' => $geo['area'],
             ])->save();
+
+            // Post-Phase 21 — opt-in login alert (IP, location, device). Must
+            // never break the sign-in itself if mail delivery fails.
+            if ($user->login_alerts_enabled) {
+                try {
+                    $user->notify(new LoginAlert($entry));
+                } catch (\Throwable $e) {
+                    Log::error('auth.login_alert_send_failed', [
+                        'user_id' => $user->id,
+                        'exception' => $e->getMessage(),
+                    ]);
+                }
+            }
         }
 
         Log::info('auth.login_history', [

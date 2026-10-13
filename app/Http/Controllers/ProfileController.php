@@ -48,6 +48,26 @@ class ProfileController extends Controller
     }
 
     /**
+     * Post-Phase 21 — opt-in login-alert emails (IP, location, device).
+     */
+    public function loginAlerts(Request $request, AuditLogger $audit): RedirectResponse
+    {
+        $data = $request->validate(['enabled' => ['required', 'boolean']]);
+
+        $user = $request->user();
+        $old = ['login_alerts_enabled' => $user->login_alerts_enabled];
+
+        $user->login_alerts_enabled = (bool) $data['enabled'];
+        $user->save();
+
+        $audit->log('profile.login_alerts_updated', $user, $old, [
+            'login_alerts_enabled' => $user->login_alerts_enabled,
+        ]);
+
+        return back()->with('status', 'profile-updated');
+    }
+
+    /**
      * Same gate as the profile identity-lock Volt form: name/email (and now
      * photo/phone) are HR-managed for plain employee accounts (§3).
      */

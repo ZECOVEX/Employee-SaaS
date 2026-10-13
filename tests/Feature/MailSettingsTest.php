@@ -2,11 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Models\UserLoginHistory;
 use App\Notifications\HighRiskAttendance;
 use App\Notifications\LeaveNoticeAdded;
 use App\Notifications\LeaveStatusChanged;
+use App\Notifications\LoginAlert;
 use App\Notifications\MailTest;
 use App\Notifications\OvertimeDetected;
+use App\Notifications\PasswordChanged;
 use App\Services\MailSettings;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -375,5 +378,93 @@ class MailSettingsTest extends TestCase
             ->assertSee('mail_features[]', false)
             ->assertSee('Warnings & risk alerts')
             ->assertSee('Monthly progress (score & status)');
+    }
+
+    public function test_mail_footer_uses_the_organization_name_not_the_app_name(): void
+    {
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization('Acme Inc');
+        $user = $this->makeUser($org, 'employee', $roles);
+
+        $mail = (new PasswordChanged)->toMail($user);
+
+        $this->assertSame('Acme Inc', $mail->viewData['footer'] ?? null);
+    }
+
+    public function test_mail_footer_prefers_the_admin_saved_from_name_over_the_org_name(): void
+    {
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization('Acme Inc');
+        $user = $this->makeUser($org, 'employee', $roles);
+
+        // The admin typed this company name in Settings → Email ("from name").
+        $org->update(['settings' => ['mail_from_name' => 'Globex Corporation']]);
+
+        $mail = (new PasswordChanged)->toMail($user->fresh());
+
+        $this->assertSame('Globex Corporation', $mail->viewData['footer'] ?? null);
+    }
+
+    public function test_brand_falls_back_to_app_name_for_org_less_recipients(): void
+    {
+        $this->assertSame(config('app.name'), MailSettings::brandFor((object) []));
+    }
+
+    public function test_login_alert_subject_has_no_platform_brand(): void
+    {
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization('Acme Inc');
+        $user = $this->makeUser($org, 'employee', $roles);
+        $entry = UserLoginHistory::query()->create([
+            'organization_id' => $org->id,
+            'user_id' => $user->id,
+            'ip_address' => '203.0.113.7',
+            'login_status' => 'SUCCESS',
+        ]);
+
+        $subject = (new LoginAlert($entry))->subject();
+
+        $this->assertSame('New sign-in to your account', $subject);
+        $this->assertStringNotContainsString('EmployeeSaaS', $subject);
+    }
+
+    public function test_password_reset_email_salutation_uses_the_admin_or_org_name(): void
+    {
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization('Acme Inc');
+        $user = $this->makeUser($org, 'employee', $roles, ['password' => 'password']);
+
+        // No mail_from_name saved — fall back to the organization name.
+        $mail = (new ResetPassword('token'))->toMail($user);
+
+        $this->assertStringContainsString('Acme Inc', (string) $mail->salutation);
+        $this->assertStringNotContainsString('EmployeeSaaS', (string) $mail->salutation);
+        $this->assertStringContainsString('/reset-password/token', $mail->actionUrl);
+
+        // Admin saved a from-name in Settings → Email — it wins everywhere.
+        $org->update(['settings' => ['mail_from_name' => 'Globex Corporation']]);
+
+        $mail = (new ResetPassword('token'))->toMail($user->fresh());
+
+        $this->assertStringContainsString('Globex Corporation', (string) $mail->salutation);
+    }
+
+    public function test_from_name_defaults_to_the_organization_name_when_unset(): void
+    {
+        ['organization' => $org] = $this->makeOrganization('Zecovex');
+
+        $org->update(['settings' => [
+            'mail_enabled' => true,
+            'mail_host' => 'smtp.example.test',
+            'mail_port' => 587,
+            'mail_encryption' => 'tls',
+            'mail_from_address' => 'hr@zecovex.test',
+            // no mail_from_name
+        ]]);
+
+        app(MailSettings::class)->apply($org->fresh());
+
+        $this->assertSame('Zecovex', config('mail.from.name'));
+    }
+
+    public function test_mail_test_body_has_no_hardcoded_platform_name(): void
+    {
+        $this->assertStringNotContainsString('EmployeeSaaS', implode(' ', (new MailTest)->mailLines()));
     }
 }

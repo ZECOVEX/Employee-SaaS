@@ -78,8 +78,37 @@ class MailSettings
             'mail.mailers.smtp.password' => ! empty($settings['mail_password']) ? (string) decrypt((string) $settings['mail_password']) : null,
             'mail.mailers.smtp.timeout' => 15,
             'mail.from.address' => ! empty($settings['mail_from_address']) ? (string) $settings['mail_from_address'] : config('mail.from.address'),
-            'mail.from.name' => ! empty($settings['mail_from_name']) ? (string) $settings['mail_from_name'] : config('mail.from.name'),
+            // No custom from-name: brand the mail with the organization's own
+            // name ("Zecovex") instead of the platform app name.
+            'mail.from.name' => ! empty($settings['mail_from_name']) ? (string) $settings['mail_from_name'] : ($organization->name ?: config('mail.from.name')),
         ]);
+    }
+
+    /**
+     * Display brand for outbound mail. Priority:
+     *  1. the "from name" the admin saved in Settings → Email
+     *     (organizations.settings.mail_from_name) — whatever company name
+     *     they typed in the form;
+     *  2. the organization's own name (organizations.name);
+     *  3. the platform app name — only for org-less platform admins.
+     */
+    public static function brandFor(mixed $notifiable): string
+    {
+        $organization = data_get($notifiable, 'organization');
+
+        if ($organization instanceof Organization) {
+            $fromName = $organization->settingsArray()['mail_from_name'] ?? null;
+
+            if (is_string($fromName) && trim($fromName) !== '') {
+                return trim($fromName);
+            }
+
+            if (filled($organization->name)) {
+                return (string) $organization->name;
+            }
+        }
+
+        return (string) config('app.name');
     }
 
     /** May the organization email for this feature? Unset map = everything on. */

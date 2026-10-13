@@ -20,6 +20,8 @@ new class extends Component
 
     public bool $setupStarted = false;
 
+    public string $pendingMethod = MfaService::METHOD_TOTP;
+
     public string $secret = '';
 
     /** @var array<int, string>|null shown once after confirm/regenerate */
@@ -38,8 +40,12 @@ new class extends Component
         $this->enabled = (bool) $user->mfa_enabled;
     }
 
-    public function startSetup(): void
+    public function startSetup(string $method = MfaService::METHOD_TOTP): void
     {
+        if (! in_array($method, [MfaService::METHOD_TOTP, MfaService::METHOD_EMAIL], true)) {
+            return;
+        }
+
         /** @var User $user */
         $user = Auth::user();
 
@@ -47,8 +53,29 @@ new class extends Component
             return;
         }
 
-        $this->secret = app(MfaService::class)->beginSetup($user);
+        $this->pendingMethod = $method;
+        $this->secret = app(MfaService::class)->beginSetup($user, $method) ?? '';
         $this->setupStarted = true;
+        $this->code = '';
+    }
+
+    public function resendSetupCode(): void
+    {
+        /** @var User $user */
+        $user = Auth::user();
+
+        if ($user->mfa_enabled || ! $this->setupStarted || $this->pendingMethod !== MfaService::METHOD_EMAIL) {
+            return;
+        }
+
+        app(MfaService::class)->resendSetupCode($user);
+    }
+
+    public function cancelSetup(): void
+    {
+        $this->setupStarted = false;
+        $this->secret = '';
+        $this->code = '';
     }
 
     public function qrSvg(): string
@@ -85,6 +112,7 @@ new class extends Component
         $this->recoveryCodes = $codes;
         $this->enabled = true;
         $this->setupStarted = false;
+        $this->pendingMethod = MfaService::METHOD_TOTP;
         $this->secret = '';
         $this->code = '';
 
@@ -98,7 +126,7 @@ new class extends Component
         /** @var User $user */
         $user = Auth::user();
 
-        if (! Hash::check($this->password, $user->password) || ! TotpService::verify($user->mfa_secret ?? '', $this->code)) {
+        if (! Hash::check($this->password, $user->password) || ! $this->codePasses($user, $this->code)) {
             throw ValidationException::withMessages([
                 'password' => 'Password or code is incorrect.',
             ]);
@@ -118,7 +146,7 @@ new class extends Component
         /** @var User $user */
         $user = Auth::user();
 
-        if (! Hash::check($this->password, $user->password) || ! TotpService::verify($user->mfa_secret ?? '', $this->code)) {
+        if (! Hash::check($this->password, $user->password) || ! $this->codePasses($user, $this->code)) {
             throw ValidationException::withMessages([
                 'password' => 'Password or code is incorrect.',
             ]);
@@ -133,6 +161,16 @@ new class extends Component
 
         app(AuditLogger::class)->log('mfa.disabled', $user);
     }
+
+    /** TOTP code or a one-time recovery code (authenticator app was lost). */
+    protected function codePasses(User $user, string $code): bool
+    {
+        if (TotpService::verify($user->mfa_secret ?? '', $code)) {
+            return true;
+        }
+
+        return app(MfaService::class)->consumeRecoveryCode($user, $code);
+    }
 }; ?>
 
 <div>
@@ -143,13 +181,13 @@ new class extends Component
             </h2>
 
             <p class="mt-1 text-sm text-gray-600">
-                {{ __('Add an extra layer of security by requiring a rotating code from an authenticator app at login.') }}
+                {{ __('Protect your account with a second step at login — an authenticator app or a code sent to your email.') }}
             </p>
         </header>
 
         @if ($recoveryCodes !== null)
             <div class="mt-4 rounded-md bg-amber-50 border border-amber-200 p-4">
-                <p class="text-sm font-medium text-amber-800 mb-2">Store these recovery codes somewhere safe — each works once if you lose your authenticator.</p>
+                <p class="text-sm font-medium text-amber-800 mb-2">Store these recovery codes somewhere safe — each works once if you lose access to your second factor.</p>
                 <ul class="grid grid-cols-2 gap-1 font-mono text-sm text-amber-900">
                     @foreach ($recoveryCodes as $recoveryCode)
                         <li>{{ $recoveryCode }}</li>
@@ -164,9 +202,38 @@ new class extends Component
         @unless ($enabled)
             <div class="mt-4 space-y-4">
                 @unless ($setupStarted)
-                    <x-secondary-button wire:click="startSetup">
-                        {{ __('Enable 2FA') }}
-                    </x-secondary-button>
+                    <p class="text-sm text-gray-700">Choose how you want to confirm it's you at login:</p>
+
+                    <div class="flex flex-col sm:flex-row gap-3">
+                        <x-secondary-button wire:click="startSetup('{{ \App\Services\Mfa\MfaService::METHOD_TOTP }}')">
+                            {{ __('Authenticator app') }}
+                        </x-secondary-button>
+                        <x-secondary-button wire:click="startSetup('{{ \App\Services\Mfa\MfaService::METHOD_EMAIL }}')">
+                            {{ __('Email code') }}
+                        </x-secondary-button>
+                    </div>
+                @elseif ($pendingMethod === \App\Services\Mfa\MfaService::METHOD_EMAIL)
+                    <p class="text-sm text-gray-700">
+                        We emailed a 6-digit code to <span class="font-semibold">{{ Auth::user()->email }}</span>. Enter it below to confirm and enable email codes for login.
+                    </p>
+
+                    <div>
+                        <x-input-label for="mfa-code" :value="__('Email code')" />
+                        <x-text-input wire:model="code" id="mfa-code" class="block mt-1 w-full" type="text" inputmode="numeric" autocomplete="one-time-code" />
+                        <x-input-error :messages="$errors->get('code')" class="mt-2" />
+                    </div>
+
+                    <div class="flex items-center gap-3">
+                        <x-primary-button wire:click="confirm">
+                            {{ __('Confirm and enable') }}
+                        </x-primary-button>
+                        <x-secondary-button wire:click="resendSetupCode">
+                            {{ __('Resend code') }}
+                        </x-secondary-button>
+                        <x-secondary-button wire:click="cancelSetup">
+                            {{ __('Cancel') }}
+                        </x-secondary-button>
+                    </div>
                 @else
                     <p class="text-sm text-gray-700">Scan this QR code with your authenticator app (or enter the secret manually), then confirm with the 6-digit code it shows.</p>
 
@@ -186,14 +253,19 @@ new class extends Component
                         <x-primary-button wire:click="confirm">
                             {{ __('Confirm and enable') }}
                         </x-primary-button>
-                        <x-secondary-button wire:click="$set('setupStarted', false)">
+                        <x-secondary-button wire:click="cancelSetup">
                             {{ __('Cancel') }}
                         </x-secondary-button>
                     </div>
                 @endunless
             </div>
         @else
-            <p class="mt-4 text-sm text-gray-700">Two-factor authentication is <span class="font-semibold text-green-700">enabled</span>.</p>
+            @php
+                $methodLabel = Auth::user()->mfa_method === \App\Services\Mfa\MfaService::METHOD_EMAIL ? 'email codes' : 'an authenticator app';
+            @endphp
+            <p class="mt-4 text-sm text-gray-700">
+                Two-factor authentication is <span class="font-semibold text-green-700">enabled</span> via {{ $methodLabel }}.
+            </p>
 
             <div class="mt-4 space-y-4 max-w-sm">
                 <div>
@@ -201,8 +273,9 @@ new class extends Component
                     <x-text-input wire:model="password" id="mfa-regen-password" class="block mt-1 w-full" type="password" autocomplete="current-password" />
                 </div>
                 <div>
-                    <x-input-label for="mfa-regen-code" :value="__('Authentication code')" />
+                    <x-input-label for="mfa-regen-code" :value="__('Authentication or recovery code')" />
                     <x-text-input wire:model="code" id="mfa-regen-code" class="block mt-1 w-full" type="text" inputmode="numeric" />
+                    <p class="mt-1 text-xs text-gray-500">Lost your authenticator? Enter one of your recovery codes instead.</p>
                     <x-input-error :messages="$errors->get('password')" class="mt-2" />
                 </div>
 

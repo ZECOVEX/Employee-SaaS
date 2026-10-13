@@ -81,6 +81,10 @@ class LoginForm extends Form
             return;
         }
 
+        // MFA is off — drop any stale staged challenge (e.g. it was enabled
+        // at an earlier attempt, then disabled) so login lands on the app.
+        app(MfaService::class)->clearChallenge();
+
         app(LoginHistoryService::class)->recordFromRequest($user, UserLoginHistory::STATUS_SUCCESS);
         RateLimiter::clear($this->throttleKey());
     }

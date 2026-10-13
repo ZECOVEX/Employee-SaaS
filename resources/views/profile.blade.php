@@ -139,6 +139,29 @@
                 </div>
             </div>
 
+            {{-- Post-Phase 21 — opt-in login-alert emails (IP, location, device). --}}
+            <div class="p-4 sm:p-8 bg-white shadow sm:rounded-lg" data-test="login-alerts-card">
+                <form method="POST" action="{{ route('profile.login-alerts') }}">
+                    @csrf
+                    <input type="hidden" name="enabled" value="0">
+                    <h3 class="text-lg font-medium text-gray-900 mb-1">Login alerts</h3>
+                    <p class="text-sm text-gray-600 mb-4">
+                        Email me when someone signs in to my account — including the IP address,
+                        approximate location and device of the sign-in.
+                    </p>
+
+                    <label class="flex items-center gap-3 text-sm text-gray-700">
+                        <input type="checkbox" name="enabled" value="1"
+                               class="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500"
+                               {{ $profileUser->login_alerts_enabled ? 'checked' : '' }}
+                               data-test="login-alerts-toggle" data-test-state="{{ $profileUser->login_alerts_enabled ? 'on' : 'off' }}">
+                        <span>Email me about new sign-ins</span>
+                    </label>
+
+                    <x-primary-button class="mt-4" data-test="login-alerts-save">Save</x-primary-button>
+                </form>
+            </div>
+
             <div class="p-4 sm:p-8 bg-white shadow sm:rounded-lg">
                 <h3 class="text-lg font-medium text-gray-900 mb-1">Security information</h3>
                 <p class="text-sm text-gray-600 mb-4">
