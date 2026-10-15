@@ -57,7 +57,7 @@ Open http://localhost:8000 — the entrypoint generates `APP_KEY`, caches config
 ### Phase 2 — Workforce operations
 - **Attendance**: NFC punch API (`POST /api/attendance/nfc/punch` and versioned alias `POST /api/v1/attendance/nfc/punch`, both with `X-Terminal-Key` + optional `terminal_id`), configurable debounce (per employee+terminal, org setting), daily totals summed from completed IN→OUT segments (mid-day exits excluded), HALF_DAY + review flags (`possible_missed_checkin`, `excessive_segments`), manual corrections with audit, re-editable entries (edit or remove any event with a reason — original kept via supersede/soft-delete, day recalculated, full audit), full check-in/check-out entry in one step on the Correct Attendance page, org-local wall-clock times end-to-end (10:00 AM displays as 10:00 AM for UTC+6 orgs), effective-dated work schedules (past days keep their original schedule)
 - **Self-service**: employees view their own attendance (`/attendance/employee/{id}`, "My Attendance" nav), read-only name/email, photo upload on profile & employee forms
-- **NFC cards**: issue/assign/unassign/block/revoke per org, replace a lost card (new token, old card revoked but history preserved) with a per-card punch history view
+- **NFC cards**: one merged page (`/nfc-cards`) holds everything NFC — an inline *"Issue a card"* panel (phone NFC via Web NFC API / USB reader machine / typed, gated `nfc.manage`, auto-opens on validation errors) above the list, plus assign/unassign/block/revoke per org, replace a lost card (new token, old card revoked but history preserved) with a per-card punch history view; issuing claims-if-available + creates-if-new, codes normalized so `04:6e 3a` and `046E3A` are the same card, terminal punches accept either shape
 - **Terminals**: register devices, API key shown once (sha256-hashed), revocation
 - **Leave**: types + yearly balances, request/approve/reject/cancel workflow with balance enforcement
 - **Work schedules**: working hours, grace period, breaks, holidays (defaults seeded per org), weekday selection, versioned by effective date
@@ -164,10 +164,14 @@ Open http://localhost:8000 — the entrypoint generates `APP_KEY`, caches config
 - **Pick your second factor**: 2FA can use an authenticator app (QR) **or** a 6-digit code emailed on demand — the profile card offers both; the login challenge is method-aware, and recovery codes work either way. Disable/regenerate now also accept a recovery code, so removing the app from Google Authenticator never locks you out
 - **Login alerts**: opt-in toggle on the profile — get an email on every successful sign-in with the IP, approximate location and device (browser + OS); off by default, audited, and toggleable from the Settings → Email security checklist
 
+### Post-Phase 25 — Landing page light/dark mode
+- **Theme toggle**: the marketing page (`/`) ships a real light **and** dark mode — a moon/sun button in the sticky header switches instantly and remembers the choice (`localStorage.theme`), defaulting to the OS `prefers-color-scheme` on first visit; Tailwind now runs `darkMode: 'class'` with a no-FOUC bootstrap script in `<head>`
+- **Full dual-mode page**: header, hero, dashboard mockup, payslip card, logo cloud and all mid-page sections render light-first with `dark:` variants (white/slate-950 pairing, indigo gradient headline, dual `.hero-grid`/`.glow` CSS); the announcement bar, CTA band and footer stay always-dark accent strips so the Zecovex lockup and "Powered by" branding keep their dark backdrop in both modes
+
 ## Tests & checks
 
 ```bash
-php artisan test        # 482 tests
+php artisan test        # 491 tests
 composer format         # Pint code style (app tests routes database bootstrap resources)
 composer analyse        # Larastan level 5 (phpstan.neon + baseline)
 composer check          # format + analyse + test

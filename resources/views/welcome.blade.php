@@ -4,8 +4,21 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="description" content="{{ config('app.name') }} — enterprise employee management: attendance, leave, payroll, payslips, reports and analytics for growing companies.">
+        <meta name="color-scheme" content="light dark">
 
         <title>{{ config('app.name') }} — Employee management for modern companies</title>
+
+        <script>
+            (function () {
+                try {
+                    var stored = localStorage.getItem('theme');
+                    var dark = stored ? stored === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+                    if (dark) {
+                        document.documentElement.classList.add('dark');
+                    }
+                } catch (e) {}
+            })();
+        </script>
 
         <!-- Fonts -->
         <link rel="preconnect" href="https://fonts.bunny.net">
@@ -13,6 +26,7 @@
 
         <!-- Styles -->
         @vite(['resources/css/app.css', 'resources/js/app.js'])
+        <link rel="icon" type="image/png" href="{{ asset('images/zecovex-icon.png') }}">
 
         <style>
             body { font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; }
@@ -20,10 +34,14 @@
             .reveal.is-visible { opacity: 1; transform: none; }
             @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } }
             .hero-grid {
-                background-image: linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px);
+                background-image: linear-gradient(rgba(15,23,42,.06) 1px, transparent 1px), linear-gradient(90deg, rgba(15,23,42,.06) 1px, transparent 1px);
                 background-size: 44px 44px;
             }
-            .glow { background: radial-gradient(ellipse 60% 50% at 50% 0%, rgba(99,102,241,.28), transparent 70%); }
+            .dark .hero-grid {
+                background-image: linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px);
+            }
+            .glow { background: radial-gradient(ellipse 60% 50% at 50% 0%, rgba(99,102,241,.14), transparent 70%); }
+            .dark .glow { background: radial-gradient(ellipse 60% 50% at 50% 0%, rgba(99,102,241,.28), transparent 70%); }
         </style>
     </head>
     <body class="antialiased font-sans bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-100">
@@ -37,7 +55,7 @@
         </div>
 
         {{-- Header --}}
-        <header class="sticky top-0 z-40 border-b border-white/10 bg-slate-950/90 backdrop-blur">
+        <header class="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur dark:border-white/10 dark:bg-slate-950/90">
             <div class="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
                 <a href="/" class="flex items-center gap-2.5">
                     <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 text-white shadow-lg shadow-indigo-900/40">
@@ -45,25 +63,29 @@
                             <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
                         </svg>
                     </span>
-                    <span class="text-lg font-bold tracking-tight text-white">{{ config('app.name') }}</span>
+                    <span class="text-lg font-bold tracking-tight text-slate-900 dark:text-white">{{ config('app.name') }}</span>
                 </a>
 
                 <nav class="hidden items-center gap-8 md:flex">
-                    <a href="#features" class="text-sm font-medium text-slate-300 transition hover:text-white">Product</a>
-                    <a href="#security" class="text-sm font-medium text-slate-300 transition hover:text-white">Security</a>
-                    <a href="#customers" class="text-sm font-medium text-slate-300 transition hover:text-white">Customers</a>
+                    <a href="#features" class="text-sm font-medium text-slate-600 transition hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">Product</a>
+                    <a href="#security" class="text-sm font-medium text-slate-600 transition hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">Security</a>
+                    <a href="#customers" class="text-sm font-medium text-slate-600 transition hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">Customers</a>
                 </nav>
 
                 <div class="flex items-center gap-2 sm:gap-3">
+                    <button type="button" id="theme-toggle" aria-label="Toggle dark mode" class="rounded-lg border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5 dark:hover:text-white">
+                        <svg class="h-5 w-5 dark:hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" /></svg>
+                        <svg class="hidden h-5 w-5 dark:block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" /></svg>
+                    </button>
                     @auth
-                        <a href="{{ url('/dashboard') }}" class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-200 transition hover:text-white">
+                        <a href="{{ url('/dashboard') }}" class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 transition hover:text-slate-900 dark:text-slate-200 dark:hover:text-white">
                             Dashboard
                         </a>
                     @else
-                        <a href="{{ route('login') }}" class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-200 transition hover:text-white">
+                        <a href="{{ route('login') }}" class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 transition hover:text-slate-900 dark:text-slate-200 dark:hover:text-white">
                             Log in
                         </a>
-                        <a href="{{ route('register') }}" class="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-900 shadow transition hover:bg-slate-100">
+                        <a href="{{ route('register') }}" class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100">
                             Start free
                         </a>
                     @endauth
@@ -72,24 +94,24 @@
         </header>
 
         {{-- Hero --}}
-        <section class="relative overflow-hidden bg-slate-950">
+        <section class="relative overflow-hidden bg-white dark:bg-slate-950">
             <div aria-hidden="true" class="pointer-events-none absolute inset-0 hero-grid"></div>
             <div aria-hidden="true" class="pointer-events-none absolute inset-0 glow"></div>
 
             <div class="relative mx-auto max-w-7xl px-4 pb-24 pt-16 sm:px-6 sm:pt-24 lg:px-8 lg:pb-32">
                 <div class="grid items-center gap-14 lg:grid-cols-2 lg:gap-16">
                     <div class="max-w-2xl">
-                        <p class="mb-6 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 py-1.5 text-xs font-semibold tracking-wide text-slate-300">
+                        <p class="mb-6 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-4 py-1.5 text-xs font-semibold tracking-wide text-slate-600 dark:border-white/15 dark:bg-white/5 dark:text-slate-300">
                             <span class="inline-flex h-1.5 w-1.5 rounded-full bg-indigo-400"></span>
                             ENTERPRISE EMPLOYEE MANAGEMENT PLATFORM
                         </p>
 
-                        <h1 class="text-4xl font-extrabold leading-[1.08] tracking-tight text-white sm:text-5xl lg:text-[3.4rem]">
+                        <h1 class="text-4xl font-extrabold leading-[1.08] tracking-tight text-slate-900 sm:text-5xl lg:text-[3.4rem] dark:text-white">
                             Run your entire team from
-                            <span class="bg-gradient-to-r from-indigo-400 via-indigo-300 to-sky-300 bg-clip-text text-transparent">one place</span>
+                            <span class="bg-gradient-to-r from-indigo-600 via-indigo-500 to-sky-500 bg-clip-text text-transparent dark:from-indigo-400 dark:via-indigo-300 dark:to-sky-300">one place</span>
                         </h1>
 
-                        <p class="mt-6 max-w-xl text-lg leading-8 text-slate-400">
+                        <p class="mt-6 max-w-xl text-lg leading-8 text-slate-600 dark:text-slate-400">
                             {{ config('app.name') }} unifies attendance, leave, payroll, and people analytics — with enterprise-grade security, granular permissions, and complete data isolation for every company.
                         </p>
 
@@ -98,25 +120,25 @@
                                 Create your workspace
                                 <svg class="ml-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" /></svg>
                             </a>
-                            <a href="{{ route('login') }}" class="inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/5 px-8 py-3.5 text-base font-semibold text-white transition hover:bg-white/10">
+                            <a href="{{ route('login') }}" class="inline-flex items-center justify-center rounded-xl border border-slate-300 px-8 py-3.5 text-base font-semibold text-slate-700 transition hover:bg-slate-100 dark:border-white/15 dark:bg-white/5 dark:text-white dark:hover:bg-white/10">
                                 Log in
                             </a>
                         </div>
 
                         <div class="mt-10 flex items-center gap-6 text-sm text-slate-500">
                             <div class="flex -space-x-2">
-                                <span class="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white ring-2 ring-slate-950">AK</span>
-                                <span class="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-600 text-[10px] font-bold text-white ring-2 ring-slate-950">MR</span>
-                                <span class="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white ring-2 ring-slate-950">JL</span>
-                                <span class="flex h-8 w-8 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white ring-2 ring-slate-950">+</span>
+                                <span class="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white ring-2 ring-white dark:ring-slate-950">AK</span>
+                                <span class="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-600 text-[10px] font-bold text-white ring-2 ring-white dark:ring-slate-950">MR</span>
+                                <span class="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white ring-2 ring-white dark:ring-slate-950">JL</span>
+                                <span class="flex h-8 w-8 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white ring-2 ring-white dark:ring-slate-950">+</span>
                             </div>
-                            <p>Trusted by people teams at <span class="font-medium text-slate-300">2,400+</span> companies worldwide</p>
+                            <p>Trusted by people teams at <span class="font-medium text-slate-700 dark:text-slate-300">2,400+</span> companies worldwide</p>
                         </div>
                     </div>
 
                     {{-- Product mockup --}}
                     <div class="relative mx-auto w-full max-w-lg lg:max-w-none">
-                        <div class="rounded-2xl border border-white/10 bg-slate-900 p-2 shadow-2xl shadow-indigo-950/60">
+                        <div class="rounded-2xl border border-slate-200 bg-slate-100 p-2 shadow-2xl shadow-indigo-950/20 dark:border-white/10 dark:bg-slate-900 dark:shadow-indigo-950/60">
                             <div class="overflow-hidden rounded-xl bg-white dark:bg-slate-900">
                                 <div class="flex items-center gap-1.5 border-b border-slate-200 bg-slate-50 px-4 py-2.5 dark:border-slate-800 dark:bg-slate-950/60">
                                     <span class="h-2.5 w-2.5 rounded-full bg-rose-400"></span>
@@ -185,9 +207,9 @@
                             </div>
                         </div>
 
-                        <div class="absolute -bottom-5 -left-5 hidden rounded-xl border border-white/10 bg-slate-900 px-4 py-3 shadow-xl sm:block">
+                        <div class="absolute -bottom-5 -left-5 hidden rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-xl dark:border-white/10 dark:bg-slate-900 sm:block">
                             <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Payslip generated</p>
-                            <p class="mt-0.5 text-sm font-semibold text-white">October · 142 employees</p>
+                            <p class="mt-0.5 text-sm font-semibold text-slate-900 dark:text-white">October · 142 employees</p>
                         </div>
                     </div>
                 </div>
@@ -195,16 +217,16 @@
         </section>
 
         {{-- Logo cloud --}}
-        <section class="border-t border-slate-800 bg-slate-950 py-12">
+        <section class="border-t border-slate-200 bg-slate-50 py-12 dark:border-slate-800 dark:bg-slate-950">
             <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
                 <p class="text-center text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Trusted by teams worldwide</p>
                 <div class="mt-8 grid grid-cols-2 gap-8 sm:grid-cols-3 lg:grid-cols-6">
-                    <p class="text-center text-lg font-bold tracking-tight text-slate-600">Northwind</p>
-                    <p class="text-center text-lg font-bold tracking-tight text-slate-600">Vertex Labs</p>
-                    <p class="text-center text-lg font-bold tracking-tight text-slate-600">Halcyon</p>
-                    <p class="text-center text-lg font-bold tracking-tight text-slate-600">Meridian</p>
-                    <p class="text-center text-lg font-bold tracking-tight text-slate-600">Pinnacle HR</p>
-                    <p class="text-center text-lg font-bold tracking-tight text-slate-600">Solstice</p>
+                    <p class="text-center text-lg font-bold tracking-tight text-slate-400 dark:text-slate-600">Northwind</p>
+                    <p class="text-center text-lg font-bold tracking-tight text-slate-400 dark:text-slate-600">Vertex Labs</p>
+                    <p class="text-center text-lg font-bold tracking-tight text-slate-400 dark:text-slate-600">Halcyon</p>
+                    <p class="text-center text-lg font-bold tracking-tight text-slate-400 dark:text-slate-600">Meridian</p>
+                    <p class="text-center text-lg font-bold tracking-tight text-slate-400 dark:text-slate-600">Pinnacle HR</p>
+                    <p class="text-center text-lg font-bold tracking-tight text-slate-400 dark:text-slate-600">Solstice</p>
                 </div>
             </div>
         </section>
@@ -355,7 +377,7 @@
                 </div>
 
                 <div class="reveal relative">
-                    <div class="rounded-2xl border border-slate-200 bg-slate-950 p-8 shadow-2xl dark:border-slate-800">
+                    <div class="rounded-2xl border border-slate-200 bg-slate-950 p-8 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
                         <div class="flex items-center gap-3">
                             <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/15 text-indigo-400">
                                 <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" /></svg>
@@ -535,7 +557,10 @@
 
                 <div class="mt-12 flex flex-col items-center justify-between gap-4 border-t border-slate-800 pt-8 sm:flex-row">
                     <p class="text-xs text-slate-600">© {{ date('Y') }} {{ config('app.name') }}. All rights reserved.</p>
-                    <p class="text-xs text-slate-500">Powered by Zecovex</p>
+                    <p class="flex items-center gap-2 text-xs font-medium text-slate-400">
+                        Powered by
+                        <img src="{{ asset('images/zecovex-lockup.png') }}" alt="Zecovex" class="h-8 w-auto mix-blend-lighten" width="124" height="26">
+                    </p>
                 </div>
             </div>
         </footer>
@@ -547,6 +572,11 @@
                 }
             }, { threshold: 0.12 });
             document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+
+            document.getElementById('theme-toggle').addEventListener('click', function () {
+                var dark = document.documentElement.classList.toggle('dark');
+                try { localStorage.setItem('theme', dark ? 'dark' : 'light'); } catch (e) {}
+            });
         </script>
     </body>
 </html>

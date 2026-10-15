@@ -339,6 +339,31 @@ User request: "the main login panel shows laravel, change it and make a suitable
 
 Tests: **482 green** (1 new in `BrandingTest`). pint clean, phpstan clean, vite build.
 
+## Post-Phase 24 — NFC issue, merged into the NFC Cards page (shipped)
+
+One page now holds everything NFC: issuing **and** the card lifecycle (assign/unassign/block/revoke/replace/history). The issue flow first shipped as its own `settings/nfc-issue` page, then moved into the NFC section, and finally **merged into the cards list itself** (user request: "nfc card and nfc issue merge both into one"):
+
+- **Single page** — `GET nfc-cards` hosts an inline *"Issue a card"* panel above the list (Alpine toggle, collapsed by default, **auto-opens on validation errors** or `?issue=1`), gated `@can('nfc.manage')` on a page that otherwise needs only `nfc.view`; the standalone GET route was dropped — only `POST nfc-cards/issue` (`nfc-cards.issue.store`) remains, and success redirects back to the list
+- **One nav entry** — Attendance → Devices lists just NFC Cards / Terminals again; the panel toggle button replaces the section ribbon link, and the Terminals link stays in the page ribbon
+- **Three capture methods** (Alpine tabs inside the panel): *Phone NFC* — Web NFC API (`NDEFReader.scan()` → `reading` event `serialNumber`; Chrome/Android over HTTPS), *Reader machine* — a keyboard-wedge field that commits on Enter (USB readers type the UID), *Manual code* — typed by hand. All three write the same Card code field; the selected tab posts as `method` (`phone|reader|manual`) and lands in the audit trail
+- **One-step issue**: if the normalized code already exists in the org as `available`, the card is claimed (audited `nfc.assigned`); otherwise a new `active` card is created with `issued_at` (audited `nfc.issued`). Codes already `active`/`blocked`/`revoked` are rejected with a validation error pointing at the list
+- **Code normalization**: `NfcCard::normalizeToken()` (uppercase, whitespace/colons stripped) runs at issue time, so `04:6e 3a` and `046E3A` are the same card; `AttendanceService::punch()` retries the normalized form when the exact token lookup misses — terminals emitting `04:6E:3A:2B` punch a card stored as `046E3A2B`
+- Employee picker lists only the org's active employees (`Rule::exists` scoped to `organization_id` + the global org scope → cross-org employee is a 422 with no card created); the cards controller now passes the same active-employee collection to the list view (shared by the assign dropdown and the panel)
+- Tests: `NfcIssueTest` +9 — panel visible to `nfc.manage` admins on the cards page; HR sees the list but never the panel, employees get 403 and both are forbidden from the POST; typed issue creates an active card + `nfc.issued` audit (method recorded); normalization on store; existing `available` card claimed (no duplicate, `nfc.assigned`); already-active code rejected; cross-org employee rejected; one merged page (panel + assign + Terminals, no separate "NFC issue" entry, employees see nothing); colon-separated punch accepted after issue
+
+Tests: **491 green** (9 new in `NfcIssueTest`). pint clean, phpstan clean, vite build.
+
+## Post-Phase 25 — Landing page light/dark mode toggle (shipped)
+
+User request: "make the main landing page dark and light mode."
+
+- **Class-based dark mode** — `tailwind.config.js` gains `darkMode: 'class'` (Tailwind's default `media` strategy tied `dark:` variants to the OS preference with no way to switch). The app views are unaffected: the only other `dark:` usage (`livewire/welcome/navigation.blade.php`, 3 links) is unreferenced, and no app layout adds a `.dark` class
+- **No-FOUC bootstrap** — an inline `<head>` script reads `localStorage('theme')`, falls back to `prefers-color-scheme: dark`, and sets `document.documentElement.classList`'s `dark` before first paint; `<meta name="color-scheme" content="light dark">` keeps native form controls in sync
+- **Header toggle** — `#theme-toggle` (vanilla JS; the landing loads no Alpine) sits beside Log in / Start free; moon/sun icons swap via `dark:hidden`/`dark:block`, the click handler toggles the class and persists `localStorage.theme`
+- **Dual-mode conversion** — the hardcoded-dark chrome is now light-first with `dark:` variants: sticky header (white/90 blur vs slate-950/90), hero (`bg-white` vs slate-950), badge, gradient headline (indigo-600→sky-500 in light, indigo-400→sky-300 in dark), secondary CTA, avatar rings (`ring-white` vs `ring-slate-950`), mockup frame (slate-100 vs slate-900) + floating payslip card, and the logo cloud (slate-50 strip, names slate-400 vs slate-600); `.hero-grid` and `.glow` gained `.dark` overrides so the pattern and radial read on both backgrounds. The mid-page sections already carried `dark:` variants and finally render dark as designed (they previously only darkened via the OS media query)
+- **Always-dark accent bands kept** — the announcement bar, CTA band and footer stay slate-950 in both modes: the footer Zecovex lockup is a black-background PNG relying on `mix-blend-lighten` (invisible on white), and `BrandingTest`'s `/Powered by\s*<img/` regex requires the image to stay unwrapped; the "security at a glance" card keeps its dark accent in light mode and gains `dark:bg-slate-900` so it separates from the section in dark mode
+- Tests: **491 green** (no new — `BrandingTest` landing + lockup regex re-verified unchanged). pint clean, vite build.
+
 ## Standing decisions (locked)
 
 | Decision | Choice |

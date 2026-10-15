@@ -128,6 +128,10 @@ Security & enterprise features reuse the catalog (still 30 keys):
 
 - **Leave re-review & notices** — approve, re-approve, reject and re-reject all remain `leave.approve` (managers stay team-scoped via `authorizeReview`, `leave.manage`/platform admin unrestricted); posting a notice (`POST leave/{leaveRequest}/notice`) reuses the same key and scope. The detail page (`GET leave/{leaveRequest}`) needs only `leave.view` plus ownership (the requesting employee) or review scope. Editing a request (`GET leave/{leaveRequest}/edit`, `PUT leave/{leaveRequest}` — Post-Phase 13, including edits after approval that reconcile the balance) also reuses `leave.approve` with the identical team scope.
 
+## Post-Phase 24 — no new permission keys
+
+- **NFC issue** (`POST nfc-cards/issue`) → `nfc.manage` (route middleware **and** `Gate::authorize` in `NfcIssueController`) — the existing "issue and manage" key, so company_admin only (HR holds `nfc.view` and gets a 403). The form is **merged into the NFC Cards page** (`GET nfc-cards`, gated `nfc.view`): the inline "Issue a card" panel renders behind `@can('nfc.manage')`, so HR sees the list but never the issue UI; no standalone route or nav entry exists.
+
 ## Self-service exceptions (no extra permission needed)
 
 - **Own attendance** — any authenticated employee can view `GET attendance/employee/{theirOwnId}`; viewing anyone else's record requires `attendance.view` (403 otherwise). The sidebar shows a "My Attendance" entry when `attendance.view` is absent.

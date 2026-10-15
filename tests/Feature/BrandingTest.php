@@ -13,9 +13,13 @@ class BrandingTest extends TestCase
 
     public function test_landing_page_shows_powered_by_zecovex(): void
     {
-        $this->get('/')
-            ->assertOk()
-            ->assertSee('Powered by Zecovex');
+        $response = $this->get('/');
+
+        $response->assertOk();
+        $this->assertMatchesRegularExpression(
+            '/Powered by\s*<img[^>]*zecovex-lockup\.png[^>]*>/',
+            $response->getContent()
+        );
     }
 
     public function test_landing_page_is_the_product_marketing_page_not_the_laravel_default(): void

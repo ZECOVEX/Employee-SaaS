@@ -32,7 +32,13 @@ class NfcCardController extends Controller
             ->paginate(30)
             ->withQueryString();
 
-        return view('nfc.index', compact('cards'));
+        // Active employees for the assign dropdown and the inline issue panel.
+        $employees = Employee::with('user:id,name')
+            ->where('status', 'active')
+            ->orderBy('employee_code')
+            ->get();
+
+        return view('nfc.index', compact('cards', 'employees'));
     }
 
     public function store(Request $request): RedirectResponse

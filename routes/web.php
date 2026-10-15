@@ -15,6 +15,7 @@ use App\Http\Controllers\LeaveController;
 use App\Http\Controllers\LiveAttendanceController;
 use App\Http\Controllers\MailSettingsController;
 use App\Http\Controllers\NfcCardController;
+use App\Http\Controllers\NfcIssueController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OvertimeController;
 use App\Http\Controllers\OvertimePolicyController;
@@ -380,6 +381,12 @@ Route::middleware(['auth', 'verified', 'organization', 'company'])
         Route::post('nfc-cards', [NfcCardController::class, 'store'])
             ->middleware('permission:nfc.manage')
             ->name('nfc-cards.store');
+        // Post-Phase 24 — NFC issue: the capture/issue form lives inline on
+        // the NFC Cards page (one merged page holds issue + card actions);
+        // only the POST endpoint is routed.
+        Route::post('nfc-cards/issue', [NfcIssueController::class, 'store'])
+            ->middleware('permission:nfc.manage')
+            ->name('nfc-cards.issue.store');
         Route::post('nfc-cards/{nfcCard}/assign', [NfcCardController::class, 'assign'])
             ->middleware('permission:nfc.manage')
             ->name('nfc-cards.assign');

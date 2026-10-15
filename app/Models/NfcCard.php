@@ -24,6 +24,16 @@ class NfcCard extends Model
 {
     use BelongsToOrganization;
 
+    /**
+     * Canonical form of a captured card code: uppercase with whitespace
+     * and colons stripped, so `04:6e 3a` and `046E3A` resolve to the same
+     * card (phone NFC / reader machines emit either shape).
+     */
+    public static function normalizeToken(string $token): string
+    {
+        return strtoupper((string) preg_replace('/[\s:]+/', '', trim($token)));
+    }
+
     protected function casts(): array
     {
         return [

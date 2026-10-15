@@ -46,6 +46,19 @@ class AttendanceService
                 ->lockForUpdate()
                 ->first();
 
+            // Codes issued from the NFC issue page (nfc-cards/issue) are
+            // stored normalized (uppercase, separators stripped) — accept
+            // the same code in whatever shape the reader emits
+            // (`04:6e:3a` → `046E3A`).
+            $normalized = NfcCard::normalizeToken($cardToken);
+            if (! $card && $normalized !== $cardToken) {
+                $card = NfcCard::withoutGlobalScopes()
+                    ->where('organization_id', $terminal->organization_id)
+                    ->where('card_token', $normalized)
+                    ->lockForUpdate()
+                    ->first();
+            }
+
             if (! $card || $card->status !== 'active') {
                 throw new \RuntimeException('Unknown or inactive NFC card.');
             }

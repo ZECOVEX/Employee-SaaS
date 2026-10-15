@@ -114,7 +114,7 @@ new class extends Component
                         'label' => 'Devices',
                         'active' => ['nfc-cards.*', 'terminals.*'],
                         'children' => [
-                            ['label' => 'NFC Cards', 'route' => 'nfc-cards.index', 'active' => 'nfc-cards.*', 'can' => $can('nfc.view')],
+                            ['label' => 'NFC Cards', 'route' => 'nfc-cards.index', 'active' => ['nfc-cards.index', 'nfc-cards.history'], 'can' => $can('nfc.view')],
                             ['label' => 'Terminals', 'route' => 'terminals.index', 'active' => 'terminals.*', 'can' => $can('attendance.terminal')],
                         ],
                     ],
