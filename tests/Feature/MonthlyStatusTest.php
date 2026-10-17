@@ -150,6 +150,27 @@ class MonthlyStatusTest extends TestCase
         $service->generate('2026-13');
     }
 
+    public function test_snapshots_never_precede_the_joining_month(): void
+    {
+        $employee = $this->employee();
+
+        foreach ($this->septemberWeekdays() as $date) {
+            $this->seedDay($employee, $date, '09:00', '18:00');
+        }
+
+        $service = app(MonthlyStatusService::class);
+
+        // Joins in October: September must not be snapshotted despite full attendance.
+        $employee->update(['joining_date' => '2026-10-01']);
+        $this->assertSame(0, $service->generate('2026-09'));
+        $this->assertSame(0, EmployeeMonthlyStatus::withoutGlobalScopes()->count());
+
+        // The joining month itself is included.
+        $employee->update(['joining_date' => '2026-09-15']);
+        $this->assertSame(1, $service->generate('2026-09'));
+        $this->assertSame('2026-09', EmployeeMonthlyStatus::withoutGlobalScopes()->sole()->periodKey());
+    }
+
     public function test_command_generates_for_the_requested_month(): void
     {
         $this->employee();

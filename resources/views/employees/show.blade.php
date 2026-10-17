@@ -273,7 +273,7 @@
 
                         @default {{-- monthly --}}
                             @if ($tabData->isEmpty())
-                                <p class="text-gray-500">No finalized monthly status yet — snapshots appear after the month is generated (§17).</p>
+                                <p class="text-gray-500">No finalized monthly status yet — snapshots appear after the month is generated.</p>
                             @else
                                 <table class="min-w-full divide-y divide-gray-200">
                                     <thead>

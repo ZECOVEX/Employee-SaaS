@@ -24,6 +24,7 @@ use App\Services\RiskService;
 use App\Services\ScoreService;
 use App\Services\Webhooks\WebhookEvent;
 use App\Services\Webhooks\WebhookService;
+use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -242,6 +243,10 @@ class EmployeeController extends Controller
         $requested = $request->string('tab')->toString();
         $tab = in_array($requested, $tabs, true) ? $requested : ($tabs[0] ?? 'monthly');
 
+        $joiningMonthKey = $employee->joining_date !== null
+            ? (int) Carbon::parse($employee->joining_date)->format('Ym')
+            : null;
+
         $tabData = match ($tab) {
             'leave' => LeaveRequest::with('leaveType:id,name,code')
                 ->where('employee_id', $employee->id)
@@ -259,6 +264,10 @@ class EmployeeController extends Controller
                 ->limit(30)
                 ->get(),
             default => EmployeeMonthlyStatus::where('employee_id', $employee->id)
+                ->when(
+                    $joiningMonthKey !== null,
+                    fn ($query) => $query->whereRaw('year * 100 + month >= ?', [$joiningMonthKey]),
+                )
                 ->orderByDesc('year')
                 ->orderByDesc('month')
                 ->limit(24)

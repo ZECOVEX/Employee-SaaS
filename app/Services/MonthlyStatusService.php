@@ -47,6 +47,14 @@ class MonthlyStatusService
             ->where('status', 'active')
             ->chunkById(100, function ($employees) use ($year, $monthNumber, $month, $start, $end, &$created, &$orgs) {
                 foreach ($employees as $employee) {
+                    $joinMonth = $employee->joining_date !== null
+                        ? Carbon::parse($employee->joining_date)->format('Y-m')
+                        : null;
+
+                    if ($joinMonth !== null && $month < $joinMonth) {
+                        continue; // never snapshot months before the employee joined
+                    }
+
                     $exists = EmployeeMonthlyStatus::withoutGlobalScopes()
                         ->where('organization_id', $employee->organization_id)
                         ->where('employee_id', $employee->id)
