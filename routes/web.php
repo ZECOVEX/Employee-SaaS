@@ -396,6 +396,9 @@ Route::middleware(['auth', 'verified', 'organization', 'company'])
         Route::post('nfc-cards/{nfcCard}/block', [NfcCardController::class, 'block'])
             ->middleware('permission:nfc.manage')
             ->name('nfc-cards.block');
+        Route::post('nfc-cards/{nfcCard}/unblock', [NfcCardController::class, 'unblock'])
+            ->middleware('permission:nfc.manage')
+            ->name('nfc-cards.unblock');
         Route::post('nfc-cards/{nfcCard}/revoke', [NfcCardController::class, 'revoke'])
             ->middleware('permission:nfc.manage')
             ->name('nfc-cards.revoke');

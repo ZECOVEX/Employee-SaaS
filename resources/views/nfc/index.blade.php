@@ -242,6 +242,10 @@
                                                     @endforeach
                                                 </select>
                                             </form>
+                                            <form action="{{ route('nfc-cards.block', $card) }}" method="POST" class="inline">
+                                                @csrf
+                                                <button type="submit" class="text-yellow-600 hover:underline">Block</button>
+                                            </form>
                                         @endif
                                         @if ($card->status === 'active')
                                             <form action="{{ route('nfc-cards.unassign', $card) }}" method="POST" class="inline">
@@ -253,6 +257,12 @@
                                                 <button type="submit" class="text-yellow-600 hover:underline">Block</button>
                                             </form>
                                         @endif
+                                        @if ($card->status === 'blocked')
+                                            <form action="{{ route('nfc-cards.unblock', $card) }}" method="POST" class="inline">
+                                                @csrf
+                                                <button type="submit" class="text-green-600 hover:underline">Unblock</button>
+                                            </form>
+                                        @endif
                                         @if ($card->employee_id && $card->status !== 'revoked')
                                             <form action="{{ route('nfc-cards.replace', $card) }}" method="POST" class="inline"
                                                   onsubmit="return confirm('Replace this card? A new token will be issued and this one revoked. Attendance history is preserved.')">
@@ -262,7 +272,7 @@
                                         @endif
                                         @if ($card->status !== 'revoked')
                                             <form action="{{ route('nfc-cards.revoke', $card) }}" method="POST" class="inline"
-                                                  onsubmit="return confirm('Revoke this card?')">
+                                                  onsubmit="return confirm('Revoke this card? This cannot be undone - the token stays permanently revoked.')">
                                                 @csrf
                                                 <button type="submit" class="text-red-600 hover:underline">Revoke</button>
                                             </form>

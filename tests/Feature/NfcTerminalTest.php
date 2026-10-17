@@ -84,6 +84,66 @@ class NfcTerminalTest extends TestCase
         $this->assertSame('revoked', $card->fresh()->status);
     }
 
+    public function test_blocked_cards_can_be_unblocked_and_revoked_stays_terminal(): void
+    {
+        $ctx = $this->makeOrganization('NfcCo2b');
+        $admin = $this->makeUser($ctx['organization'], 'company_admin', $ctx['roles']);
+        $user = $this->makeUser($ctx['organization'], 'employee', $ctx['roles']);
+        $employee = $this->makeEmployee($ctx['organization'], $user, 'EMP-UB1');
+
+        // Assigned: active -> blocked -> unblocked back to active.
+        $assigned = NfcCard::create([
+            'organization_id' => $ctx['organization']->id,
+            'card_token' => 'tok-unblock-1',
+            'employee_id' => $employee->id,
+            'status' => 'active',
+        ]);
+
+        $this->actingAs($admin)->post(route('nfc-cards.block', $assigned))->assertRedirect();
+        $this->assertSame('blocked', $assigned->fresh()->status);
+
+        $this->actingAs($admin)->post(route('nfc-cards.unblock', $assigned))->assertRedirect();
+        $this->assertSame('active', $assigned->fresh()->status);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'nfc.unblocked']);
+
+        // The cards page offers Unblock while a card sits blocked.
+        $this->actingAs($admin)->post(route('nfc-cards.block', $assigned))->assertRedirect();
+        $this->actingAs($admin)
+            ->get(route('nfc-cards.index'))
+            ->assertOk()
+            ->assertSee('Unblock');
+
+        // Unassigned: available -> blocked -> unblocked back to available.
+        $spare = NfcCard::create([
+            'organization_id' => $ctx['organization']->id,
+            'card_token' => 'tok-unblock-2',
+            'status' => 'available',
+        ]);
+
+        $this->actingAs($admin)->post(route('nfc-cards.block', $spare))->assertRedirect();
+        $this->assertSame('blocked', $spare->fresh()->status);
+
+        $this->actingAs($admin)->post(route('nfc-cards.unblock', $spare))->assertRedirect();
+        $this->assertSame('available', $spare->fresh()->status);
+
+        // Revocation is terminal: neither block nor unblock can revive it.
+        $revoked = NfcCard::create([
+            'organization_id' => $ctx['organization']->id,
+            'card_token' => 'tok-terminal-revoke',
+            'employee_id' => $employee->id,
+            'status' => 'active',
+        ]);
+
+        $this->actingAs($admin)->post(route('nfc-cards.revoke', $revoked))->assertRedirect();
+        $this->assertSame('revoked', $revoked->fresh()->status);
+
+        $this->actingAs($admin)->post(route('nfc-cards.block', $revoked))->assertRedirect();
+        $this->assertSame('revoked', $revoked->fresh()->status);
+
+        $this->actingAs($admin)->post(route('nfc-cards.unblock', $revoked))->assertRedirect();
+        $this->assertSame('revoked', $revoked->fresh()->status);
+    }
+
     public function test_assign_rejects_employee_from_another_organization(): void
     {
         $ctxA = $this->makeOrganization('NfcCo3');

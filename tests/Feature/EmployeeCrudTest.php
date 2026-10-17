@@ -370,4 +370,44 @@ class EmployeeCrudTest extends TestCase
             ->assertSee('Local Leader')
             ->assertDontSee('Foreign Manager');
     }
+
+    public function test_create_form_offers_the_photo_upload_and_store_saves_it(): void
+    {
+        Storage::fake('public');
+
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
+        $admin = $this->makeUser($org, 'company_admin', $roles);
+
+        // The create form must offer the field AND post it as multipart,
+        // otherwise the browser silently drops the file.
+        $this->actingAs($admin)
+            ->get(route('employees.create'))
+            ->assertOk()
+            ->assertSee('enctype="multipart/form-data"', false)
+            ->assertSee('name="photo"', false);
+
+        $png = base64_decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+        );
+
+        $this->actingAs($admin)
+            ->post(route('employees.store'), [
+                'name' => 'New Hire',
+                'email' => 'newhire@acme.test',
+                'password' => 'password',
+                'password_confirmation' => 'password',
+                'employee_code' => 'EMP-NEW1',
+                'status' => 'active',
+                'employment_type' => 'full_time',
+                'photo' => UploadedFile::fake()->createWithContent('id.png', $png),
+            ])
+            ->assertRedirect();
+
+        $employee = Employee::where('organization_id', $org->id)
+            ->where('employee_code', 'EMP-NEW1')
+            ->firstOrFail();
+
+        $this->assertNotNull($employee->photo_path);
+        Storage::disk('public')->assertExists($employee->photo_path);
+    }
 }

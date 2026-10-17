@@ -48,6 +48,9 @@ class NfcCard extends Model
         return $this->belongsTo(Organization::class);
     }
 
+    /**
+     * @return BelongsTo<Employee, $this>
+     */
     public function employee(): BelongsTo
     {
         return $this->belongsTo(Employee::class);

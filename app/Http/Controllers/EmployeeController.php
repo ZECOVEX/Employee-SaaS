@@ -163,8 +163,7 @@ class EmployeeController extends Controller
         });
 
         // Same post-commit photo handling as update() — a rolled-back create
-        // never leaves an orphaned file (the form does not offer a photo on
-        // create today, but the field is accepted for parity/tests).
+        // never leaves an orphaned file.
         if ($request->hasFile('photo')) {
             $newPhotoPath = $request->file('photo')->store('employees/'.$employee->id, 'public');
             $employee->update(['photo_path' => $newPhotoPath]);

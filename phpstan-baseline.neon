@@ -169,12 +169,6 @@ parameters:
 			path: app/Http/Controllers/HealthController.php
 
 		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Http/Controllers/NfcCardController.php
-
-		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$manager_id\.$#'
 			identifier: property.notFound
 			count: 1

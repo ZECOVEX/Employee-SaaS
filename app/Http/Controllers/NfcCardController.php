@@ -117,6 +117,16 @@ class NfcCardController extends Controller
     {
         Gate::authorize('nfc.manage');
 
+        // Revocation is terminal: blocked must never become a back door
+        // back to a live card (revoked -> blocked -> unblocked).
+        if ($nfcCard->status === 'revoked') {
+            return back()->with('status', 'Revoked cards are permanent and cannot be reactivated.');
+        }
+
+        if ($nfcCard->status === 'blocked') {
+            return back()->with('status', 'Card is already blocked.');
+        }
+
         $old = ['status' => $nfcCard->status];
         $nfcCard->update(['status' => 'blocked']);
 
@@ -124,6 +134,29 @@ class NfcCardController extends Controller
         $nfcCard->employee?->user?->notify(new NfcCardStatusChanged('blocked', substr($nfcCard->card_token, -4)));
 
         return back()->with('status', 'Card blocked.');
+    }
+
+    /**
+     * Reverse a block: assigned cards return to active, unassigned cards
+     * to available. Only blocked cards reach here, and blocked cards can
+     * only originate from active/available — never from revoked.
+     */
+    public function unblock(NfcCard $nfcCard): RedirectResponse
+    {
+        Gate::authorize('nfc.manage');
+
+        if ($nfcCard->status !== 'blocked') {
+            return back()->with('status', 'Only blocked cards can be unblocked.');
+        }
+
+        $old = ['status' => $nfcCard->status];
+        $restored = $nfcCard->employee_id ? 'active' : 'available';
+        $nfcCard->update(['status' => $restored]);
+
+        $this->audit->log('nfc.unblocked', $nfcCard, $old, ['status' => $restored]);
+        $nfcCard->employee?->user?->notify(new NfcCardStatusChanged('unblocked', substr($nfcCard->card_token, -4)));
+
+        return back()->with('status', 'Card unblocked.');
     }
 
     public function revoke(NfcCard $nfcCard): RedirectResponse
