@@ -168,10 +168,16 @@ Open http://localhost:8000 — the entrypoint generates `APP_KEY`, caches config
 - **Theme toggle**: the marketing page (`/`) ships a real light **and** dark mode — a moon/sun button in the sticky header switches instantly and remembers the choice (`localStorage.theme`), defaulting to the OS `prefers-color-scheme` on first visit; Tailwind now runs `darkMode: 'class'` with a no-FOUC bootstrap script in `<head>`
 - **Full dual-mode page**: header, hero, dashboard mockup, payslip card, logo cloud and all mid-page sections render light-first with `dark:` variants (white/slate-950 pairing, indigo gradient headline, dual `.hero-grid`/`.glow` CSS); the announcement bar, CTA band and footer stay always-dark accent strips so the Zecovex lockup and "Powered by" branding keep their dark backdrop in both modes
 
+### Post-Phase 26 — Full-project audit (security, correctness & performance)
+- **Privilege gaps closed**: password resets from support tickets go through a same-org / never-self / employees-only policy for actors without `users.manage`; the dashboard's users drill-down and audit feed now require `users.view` / `audit.view`
+- **Correctness**: the overtime pay-visibility stale-cache bug was root-caused to Laravel caching controller instances (and their constructor-injected services) across requests in one process — the offending memos were removed, and the hourly-rate cache key now includes the employee id
+- **Performance**: salary lookups batched in the salary list and report pages (`SalaryRecord::effectiveForDate()`), organizations eager-loaded into score loops, and composite indexes added for NFC punch lookups, daily-attendance rows and audit-log actor queries
+- **Grant hardening**: role edits and API key issuance now intersect requested permissions/abilities with what the actor may grant (`User::grantablePermissionKeys()`) — delegated editors can no longer widen their own access, while company/platform admins are unrestricted
+
 ## Tests & checks
 
 ```bash
-php artisan test        # 491 tests
+php artisan test        # 493 tests
 composer format         # Pint code style (app tests routes database bootstrap resources)
 composer analyse        # Larastan level 5 (phpstan.neon + baseline)
 composer check          # format + analyse + test
@@ -182,7 +188,7 @@ composer check          # format + analyse + test
 - [docs/architecture.md](docs/architecture.md) — tenancy, middleware, request flow, API, real-time, MFA/SSO/webhooks/Stripe, observability, privacy, geo
 - [docs/schema.md](docs/schema.md) — database tables and relationships
 - [docs/rbac.md](docs/rbac.md) — permission catalog and role matrix
-- [docs/roadmap.md](docs/roadmap.md) — Phases 1–10 + Post-Phase 11–19 additions (all complete)
+- [docs/roadmap.md](docs/roadmap.md) — Phases 1–10 + Post-Phase 11–26 additions (all complete)
 - [docs/openapi.yaml](docs/openapi.yaml) — OpenAPI 3.1 spec for /api/v1 + the NFC punch endpoint
 
 ## Scheduled Commands

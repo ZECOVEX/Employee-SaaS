@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Services\RoleSeederService;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -126,6 +127,30 @@ class User extends Authenticatable
         }
 
         return in_array($key, $this->permissionKeys(), true);
+    }
+
+    /**
+     * Permission keys this user may grant to roles or API keys: everything
+     * they hold (platform admins hold the whole catalog) plus the self-scope
+     * keys that sit outside the company_admin role (own-team / own-data), so
+     * any delegated editor may still assign employee-scoped access. A
+     * delegated role or key editor can never grant what they do not hold —
+     * re-delegation cannot widen their own access.
+     *
+     * @return array<int, string>
+     */
+    public function grantablePermissionKeys(): array
+    {
+        $all = array_keys(RoleSeederService::CATALOG);
+
+        if ($this->is_platform_admin) {
+            return $all;
+        }
+
+        $held = array_intersect($all, $this->permissionKeys());
+        $selfScope = array_diff($all, RoleSeederService::ROLE_PERMISSIONS['company_admin']);
+
+        return array_values(array_unique([...$held, ...$selfScope]));
     }
 
     /**

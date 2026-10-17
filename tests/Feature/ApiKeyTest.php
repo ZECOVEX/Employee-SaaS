@@ -139,4 +139,59 @@ class ApiKeyTest extends TestCase
             ->delete(route('api-keys.destroy', $key))
             ->assertNotFound();
     }
+
+    public function test_delegated_key_issuer_cannot_grant_abilities_they_do_not_hold(): void
+    {
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
+        $admin = $this->makeUser($org, 'company_admin', $roles);
+        $hr = $this->makeUser($org, 'hr', $roles);
+
+        // Delegate API key issuing to HR.
+        $this->actingAs($admin)
+            ->put(route('roles.update', $roles['hr']), [
+                'permissions' => [
+                    ...$roles['hr']->load('permissions')->permissions->pluck('key')->all(),
+                    'settings.manage',
+                ],
+            ])
+            ->assertRedirect(route('roles.index'));
+
+        $hr->unsetRelation('roles');
+
+        // HR may issue a key scoped to abilities HR holds.
+        $this->actingAs($hr)
+            ->post(route('api-keys.store'), [
+                'name' => 'scoped key',
+                'abilities' => ['attendance.view'],
+            ])
+            ->assertRedirect(route('api-keys.index'))
+            ->assertSessionHas('new_api_key');
+
+        $this->assertSame(
+            ['attendance.view'],
+            ApiKey::where('name', 'scoped key')->firstOrFail()->abilities,
+        );
+
+        // HR may NOT grant an ability HR does not hold…
+        $this->actingAs($hr)
+            ->from(route('api-keys.index'))
+            ->post(route('api-keys.store'), [
+                'name' => 'escalation',
+                'abilities' => ['users.manage'],
+            ])
+            ->assertSessionHasErrors('abilities');
+
+        // …nor mint a full-access key.
+        $this->actingAs($hr)
+            ->post(route('api-keys.store'), ['name' => 'full access'])
+            ->assertSessionHasErrors('abilities');
+
+        $this->assertDatabaseMissing('api_keys', ['name' => 'escalation']);
+        $this->assertDatabaseMissing('api_keys', ['name' => 'full access']);
+
+        // The company admin still issues full-access keys.
+        $this->actingAs($admin)
+            ->post(route('api-keys.store'), ['name' => 'admin full'])
+            ->assertSessionHas('new_api_key');
+    }
 }

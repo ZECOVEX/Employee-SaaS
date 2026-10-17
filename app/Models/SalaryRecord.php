@@ -75,6 +75,37 @@ class SalaryRecord extends Model
     }
 
     /**
+     * The same effective-dating rule for every employee at once, keyed by
+     * employee_id (latest effective_from wins — identical ordering to
+     * effectiveFor()). List/report pages use this instead of one query per
+     * employee.
+     *
+     * @return array<int, self|null>
+     */
+    public static function effectiveForDate(int $organizationId, string $date): array
+    {
+        $rows = self::withoutGlobalScopes()
+            ->where('organization_id', $organizationId)
+            ->where('effective_from', '<=', $date)
+            ->where(function ($q) use ($date) {
+                $q->whereNull('effective_to')->orWhere('effective_to', '>=', $date);
+            })
+            ->orderByDesc('effective_from')
+            ->orderByDesc('id')
+            ->get();
+
+        $byEmployee = [];
+        foreach ($rows as $record) {
+            $employeeId = (int) $record->employee_id;
+            if (! array_key_exists($employeeId, $byEmployee)) {
+                $byEmployee[$employeeId] = $record;
+            }
+        }
+
+        return $byEmployee;
+    }
+
+    /**
      * Recompute derived money columns from the base amounts.
      * gross = basic + allowances + bonus; net = gross − deductions.
      */

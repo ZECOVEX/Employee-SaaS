@@ -89,7 +89,7 @@
                     </form>
 
                     <div class="mt-6 border-t pt-4 flex flex-wrap items-center gap-3">
-                        @if ($ticket->user_id)
+                        @if ($canReset)
                             <form action="{{ route('support.reset_password', $ticket) }}" method="POST" class="inline"
                                   onsubmit="return confirm('Reset this user&apos;s password to a temporary one and resolve the ticket?')">
                                 @csrf

@@ -364,6 +364,22 @@ User request: "make the main landing page dark and light mode."
 - **Always-dark accent bands kept** — the announcement bar, CTA band and footer stay slate-950 in both modes: the footer Zecovex lockup is a black-background PNG relying on `mix-blend-lighten` (invisible on white), and `BrandingTest`'s `/Powered by\s*<img/` regex requires the image to stay unwrapped; the "security at a glance" card keeps its dark accent in light mode and gains `dark:bg-slate-900` so it separates from the section in dark mode
 - Tests: **491 green** (no new — `BrandingTest` landing + lockup regex re-verified unchanged). pint clean, vite build.
 
+## Post-Phase 26 — Full-project audit: security, correctness & performance (shipped)
+
+User request: "Recheck the Full project and find missing things, glitches, bugs and fix optimization."
+
+- **Support-ticket password-reset privilege fix** — resetting a password from a ticket page now runs through `SupportTicketController::canResetPasswordFor()`: same organization, never self, and actors without `users.manage` may only reset plain employees; `support/show` renders the action only when allowed
+- **Dashboard disclosure gates** — the users drill-down requires `users.view` and the Recent activity card requires `audit.view` (controller fetches + `@can` wrap), closing two over-disclosure paths for manager/employee sessions
+- **Overtime pay-visibility bug root-caused and fixed** — instance memos added to `OvertimeService::policyFor`/`scheduleFor` went stale because `Illuminate\Routing\Route` caches the controller instance (and its constructor-injected services) for the lifetime of the app instance — proven by `OvertimeDetectionTest` seeing pay after a policy hid it. The memos are removed (direct `effectiveFor` queries restored); **rule: no per-instance state caches on services injected into controllers** — batch loading is the safe optimization (deferred, see backlog)
+- **Hourly-rate cache key correctness** — `OvertimeService::hourlyRate` now keys `rateCache` on `org|employee|month|rateBase` (the missing employee id could mix rates across employees on one instance)
+- **N+1 / query batching** — `SalaryRecord::effectiveForDate()` batch helper; `SalaryController::index` and `ReportController::salaryRows` do one lookup per request instead of per employee; `organization` eager-loaded in the Dashboard score loop and monthly report employee list
+- **Indexes migration** — `2026_10_17_120000_add_performance_indexes`: `attendance_events(nfc_card_id, occurred_at)`, `daily_attendance(employee_id, date)`, `audit_logs(actor_user_id)` (each with a `down()`)
+- **Blade/JS glitches** — the NFC-unavailable warning got `style="display: none"` alongside its `x-show` (it flashed before Alpine); the landing page registers the theme-toggle handler before a guarded IntersectionObserver with an `is-visible` fallback
+- **Grant hardening (role editor + API keys)** — new `User::grantablePermissionKeys()` (held keys ∪ self-scope keys `employees.view_team`/`salary.view_own`/`dashboard.employee`; platform admin = full catalog): `roles.update` rejects only *added* keys the actor does not hold (removals always allowed, company admin still grants everything), and `api-keys.store` intersects requested abilities with the same set while full-access keys (`*`/absent/`[]`) require holding the whole catalog — delegating `users.manage`/`settings.manage` can no longer self-amplify
+- Tests: **493 green** (2 new: `RolePermissionTest::test_delegated_role_editor_cannot_grant_beyond_their_own_permissions`, `ApiKeyTest::test_delegated_key_issuer_cannot_grant_abilities_they_do_not_hold`). pint clean, phpstan clean.
+
+Deferred (backlog): SQL `GROUP BY` rewrites for the analytics endpoints (get-all-then-sum), per-board caching for the live-attendance SSE push, pagination for report/HTML exports, batch-loaded schedules for the report/score loops (the safe replacement for the removed memos).
+
 ## Standing decisions (locked)
 
 | Decision | Choice |

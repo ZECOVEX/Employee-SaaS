@@ -31,13 +31,12 @@ class SalaryController extends Controller
             ->orderBy('employee_code')
             ->get();
 
+        // One batched effective-dating query instead of one per employee.
+        $byEmployee = SalaryRecord::effectiveForDate($request->user()->organization_id, $today);
+
         $current = [];
         foreach ($employees as $employee) {
-            $current[$employee->id] = SalaryRecord::effectiveFor(
-                $request->user()->organization_id,
-                $employee->id,
-                $today,
-            );
+            $current[$employee->id] = $byEmployee[$employee->id] ?? null;
         }
 
         return view('salary.index', compact('employees', 'current'));

@@ -120,7 +120,7 @@
                                     class="px-4 py-2 bg-indigo-600 rounded-md text-sm font-semibold text-white hover:bg-indigo-500">
                                 Start NFC scan
                             </button>
-                            <p x-show="! ('NDEFReader' in window)" class="text-sm text-amber-700">
+                            <p x-show="! ('NDEFReader' in window)" style="display: none" class="text-sm text-amber-700">
                                 Web NFC is not available in this browser — switch to the Reader machine or
                                 Manual code method.
                             </p>

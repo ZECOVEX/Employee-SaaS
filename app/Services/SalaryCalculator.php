@@ -14,16 +14,16 @@ use App\Models\WorkSchedule;
 use Carbon\Carbon;
 
 /**
- * Progressive monthly salary estimate + daily salary-impact breakdown (§28).
+ * Progressive monthly salary estimate + daily salary-impact breakdown (Â§28).
  *
  * Inputs: the employee's effective-dated salary record, the effective work
  * schedule per day, daily attendance rows and approved leave. All money
  * outputs follow the organization's configurable deduction rules
  * (grace, method, rounding, absence/half-day treatment, unpaid leave, cap).
  *
- * Overtime (§73): approved overtime pay is a separate line item included in
+ * Overtime (Â§73): approved overtime pay is a separate line item included in
  * earnings/net, pending overtime is reported as potential only, and late
- * minutes absorbed by the late-offset rule are not deducted (§73-D).
+ * minutes absorbed by the late-offset rule are not deducted (Â§73-D).
  */
 class SalaryCalculator
 {
@@ -83,7 +83,7 @@ class SalaryCalculator
             ->get()
             ->keyBy(fn (OvertimeRecord $record) => $record->work_date->toDateString());
 
-        // Pass 1 — classify every calendar day of the period.
+        // Pass 1 â€” classify every calendar day of the period.
         $entries = [];
         $scheduledDays = 0;
         $cursor = $periodStart->copy();
@@ -120,7 +120,7 @@ class SalaryCalculator
             $hourlyRate = $expectedHours > 0 ? $dailyRate / $expectedHours : 0.0;
         }
 
-        // Pass 2 — per-day deductions with the monthly cap applied in date order.
+        // Pass 2 â€” per-day deductions with the monthly cap applied in date order.
         $absenceMultipliers = ['full_day' => 1.0, 'half_day' => 0.5, 'none' => 0.0];
         $halfDayMultipliers = ['full_day' => 1.0, 'half_day' => 0.5, 'none' => 0.0];
         $capLimit = $monthlyBase * (float) $rules['max_deduction_percent'] / 100;
@@ -176,8 +176,8 @@ class SalaryCalculator
                 if ($rules['late_deduction'] === 'per_minute'
                     && $row->late_minutes > 0
                     && $isAttendedScheduled) {
-                    // §73-D: minutes absorbed by the overtime late-offset rule
-                    // are not deducted — offset first, then the grace window.
+                    // Â§73-D: minutes absorbed by the overtime late-offset rule
+                    // are not deducted â€” offset first, then the grace window.
                     $effectiveLate = max(0, $row->late_minutes - $entry['late_offset']);
                     $applicable = max(0, $effectiveLate - (int) $rules['deduction_grace_minutes']);
                     $latePart = ($applicable / 60) * $hourlyRate;
@@ -246,7 +246,7 @@ class SalaryCalculator
         $unpaidDeduction = round($totals['unpaid_leave_deduction'], 2);
         $attendanceTotal = round($lateDeduction + $absenceDeduction + $unpaidDeduction, 2);
 
-        // §73-F line 3175: overtime pay is a separate line item — included in
+        // Â§73-F line 3175: overtime pay is a separate line item â€” included in
         // net only when APPROVED (AUTO_APPROVED counts); pending is "potential"
         // and excluded. COMP_TIME records carry estimated_pay 0 by design.
         $overtimePay = 0.0;
@@ -328,7 +328,7 @@ class SalaryCalculator
     }
 
     /**
-     * Approved leave dates → true when paid, false when unpaid.
+     * Approved leave dates â†’ true when paid, false when unpaid.
      *
      * @return array<string, bool>
      */

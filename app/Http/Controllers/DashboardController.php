@@ -89,7 +89,7 @@ class DashboardController extends Controller
 
             Employee::where('organization_id', $orgId)
                 ->where('status', 'active')
-                ->with('user:id,name')
+                ->with(['user:id,name', 'organization'])
                 ->orderBy('id')
                 ->cursor()
                 ->each(function (Employee $employee) use ($scoring, $risk, $organization, $currentMonth, $lowestMin, &$scores, &$atRisk, &$atRiskRows, &$bandCounts) {
@@ -269,18 +269,27 @@ class DashboardController extends Controller
             ])->values()->all(),
         ];
 
-        $recentUsers = User::where('organization_id', $orgId)
-            ->orderByDesc('id')
-            ->limit(9)
-            ->get(['id', 'name', 'email']);
+        // §— the drill-down rows carry emails, so they require users.view
+        // (the stat count itself stays visible to every dashboard holder).
+        $recentUserRows = [];
+
+        if (Gate::allows('users.view')) {
+            $recentUserRows = User::where('organization_id', $orgId)
+                ->orderByDesc('id')
+                ->limit(9)
+                ->get(['id', 'name', 'email'])
+                ->map(fn (User $member) => [
+                    'name' => $member->name,
+                    'detail' => $member->email,
+                ])
+                ->values()
+                ->all();
+        }
 
         $drilldowns['users'] = [
             'title' => 'Recently added users',
             'total' => (int) $stats['users'],
-            'rows' => $recentUsers->map(fn (User $member) => [
-                'name' => $member->name,
-                'detail' => $member->email,
-            ])->values()->all(),
+            'rows' => $recentUserRows,
         ];
 
         $drilldowns['avg_score'] = [
@@ -364,11 +373,18 @@ class DashboardController extends Controller
             ])->values()->all(),
         ];
 
-        $recentAudit = AuditLog::with('actor:id,name')
-            ->where('organization_id', $orgId)
-            ->orderByDesc('id')
-            ->limit(8)
-            ->get();
+        // Recent activity exposes audit rows — gated by audit.view here and
+        // with @can in the view (managers/hr hold dashboard.admin but not
+        // audit.view).
+        $recentAudit = collect();
+
+        if (Gate::allows('audit.view')) {
+            $recentAudit = AuditLog::with('actor:id,name')
+                ->where('organization_id', $orgId)
+                ->orderByDesc('id')
+                ->limit(8)
+                ->get();
+        }
 
         return view('dashboard.admin', compact('stats', 'recentAudit', 'drilldowns'));
     }

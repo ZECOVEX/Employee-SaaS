@@ -39,15 +39,19 @@ class SupportTicketController extends Controller
         return view('support.index', compact('tickets', 'status'));
     }
 
-    public function show(SupportTicket $ticket): View
+    public function show(Request $request, SupportTicket $ticket): View
     {
         Gate::authorize('support.view');
 
+        $ticket->load([
+            'requester:id,name,email',
+            'resolver:id,name',
+        ]);
+
         return view('support.show', [
-            'ticket' => $ticket->load([
-                'requester:id,name,email',
-                'resolver:id,name',
-            ]),
+            'ticket' => $ticket,
+            'canReset' => $ticket->requester !== null
+                && $this->canResetPasswordFor($request->user(), $ticket->requester),
         ]);
     }
 
@@ -73,6 +77,11 @@ class SupportTicketController extends Controller
      * Issue a temporary 8-char password for the requester's account and
      * resolve the ticket in one step. The plaintext is flashed for the
      * actor to relay — never stored, never emailed.
+     *
+     * support.view also covers managers and department managers, so the
+     * target is validated: same organization, never self, and a plain
+     * employee unless the actor holds the full users.manage permission
+     * (otherwise a manager could take over an admin or HR account).
      */
     public function resetPassword(Request $request, SupportTicket $ticket): RedirectResponse
     {
@@ -81,6 +90,14 @@ class SupportTicketController extends Controller
         $user = $ticket->user_id ? User::find($ticket->user_id) : null;
 
         abort_unless($user !== null, 422, 'The requester has no user account to reset.');
+
+        abort_if($user->id === $request->user()->id, 422, 'You cannot reset your own account here.');
+
+        abort_unless(
+            $this->canResetPasswordFor($request->user(), $user),
+            403,
+            'Only a user manager can reset this account.',
+        );
 
         $password = app(PasswordResetService::class)->issue($user);
 
@@ -101,6 +118,20 @@ class SupportTicketController extends Controller
         return redirect()
             ->route('support.show', $ticket)
             ->with('status', 'Ticket marked resolved.');
+    }
+
+    /**
+     * Who may reset whom: same organization, never your own account, and
+     * only plain employees for actors without users.manage (company_admin).
+     */
+    private function canResetPasswordFor(User $actor, User $target): bool
+    {
+        if ($target->id === $actor->id || $target->organization_id !== $actor->organization_id) {
+            return false;
+        }
+
+        return Gate::allows('users.manage')
+            || ! $target->hasAnyRole(['company_admin', 'hr', 'manager']);
     }
 
     private function resolveTicket(SupportTicket $ticket, User $actor): void

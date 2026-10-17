@@ -11,6 +11,7 @@ use App\Services\RoleSeederService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 /**
@@ -50,18 +51,44 @@ class ApiKeyController extends Controller
             'abilities.*' => ['string', 'in:'.implode(',', array_keys(RoleSeederService::CATALOG)).',*'],
         ]);
 
-        $abilities = $data['abilities'] ?? null;
+        // Abilities are further constrained to what the issuer may grant, so
+        // a delegated settings editor cannot mint keys that outrank them.
+        $grantable = $request->user()->grantablePermissionKeys();
+        $requested = $data['abilities'] ?? [];
+        $wantsFull = $requested === [] || in_array('*', $requested, true);
+
+        if ($wantsFull) {
+            if (array_diff(array_keys(RoleSeederService::CATALOG), $grantable) !== []) {
+                throw ValidationException::withMessages([
+                    'abilities' => 'A full-access key requires every ability; choose specific abilities instead.',
+                ]);
+            }
+
+            $abilities = null;
+            $auditAbilities = ['*'];
+        } else {
+            $denied = array_values(array_diff($requested, $grantable));
+
+            if ($denied !== []) {
+                throw ValidationException::withMessages([
+                    'abilities' => 'You cannot grant ability(s): '.implode(', ', $denied).'.',
+                ]);
+            }
+
+            $abilities = $requested;
+            $auditAbilities = $requested;
+        }
 
         $secret = ApiKey::issue(
             $request->user()->organization,
             $data['name'],
-            $abilities === [] ? null : $abilities,
+            $abilities,
             $request->user(),
         );
 
         $this->audit->log('apikey.created', null, null, [
             'name' => $data['name'],
-            'abilities' => $abilities === [] ? ['*'] : $abilities,
+            'abilities' => $auditAbilities,
         ]);
 
         return redirect()

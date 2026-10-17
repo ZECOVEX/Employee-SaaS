@@ -32,7 +32,7 @@ use Illuminate\Validation\ValidationException;
  */
 class OvertimeService
 {
-    /** @var array<string, float|null> hourly-rate cache: "org|month|rateBase" */
+    /** @var array<string, float|null> hourly-rate cache: "org|employee|month|rateBase" */
     private array $rateCache = [];
 
     /** @var array<string, array<string, true>> holiday set cache: "org|month" */
@@ -861,7 +861,7 @@ class OvertimeService
         }
 
         $month = substr($date, 0, 7);
-        $cacheKey = $employee->organization_id.'|'.$month.'|'.$rateBase;
+        $cacheKey = $employee->organization_id.'|'.$employee->id.'|'.$month.'|'.$rateBase;
 
         if (array_key_exists($cacheKey, $this->rateCache)) {
             return $this->rateCache[$cacheKey];

@@ -124,29 +124,31 @@
                 </x-hover-panel>
             </div>
 
-            <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
-                <div class="p-6">
-                    <h3 class="font-semibold text-gray-800 mb-4">Recent activity</h3>
-                    @if ($recentAudit->isEmpty())
-                        <p class="text-sm text-gray-500">No recent audit events.</p>
-                    @else
-                        <ul class="divide-y divide-gray-100">
-                            @foreach ($recentAudit as $log)
-                                <li class="py-2 flex justify-between text-sm">
-                                    <span class="text-gray-700">
-                                        <span class="font-medium">{{ $log->actor?->name ?? 'System' }}</span>
-                                        {{ str_replace('.', ' ', $log->action) }}
-                                        @if ($log->resource_type)
-                                            <span class="text-gray-400">#{{ $log->resource_id }}</span>
-                                        @endif
-                                    </span>
-                                    <span class="text-gray-400">{{ $log->created_at->diffForHumans() }}</span>
-                                </li>
-                            @endforeach
-                        </ul>
-                    @endif
+            @can('audit.view')
+                <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
+                    <div class="p-6">
+                        <h3 class="font-semibold text-gray-800 mb-4">Recent activity</h3>
+                        @if ($recentAudit->isEmpty())
+                            <p class="text-sm text-gray-500">No recent audit events.</p>
+                        @else
+                            <ul class="divide-y divide-gray-100">
+                                @foreach ($recentAudit as $log)
+                                    <li class="py-2 flex justify-between text-sm">
+                                        <span class="text-gray-700">
+                                            <span class="font-medium">{{ $log->actor?->name ?? 'System' }}</span>
+                                            {{ str_replace('.', ' ', $log->action) }}
+                                            @if ($log->resource_type)
+                                                <span class="text-gray-400">#{{ $log->resource_id }}</span>
+                                            @endif
+                                        </span>
+                                        <span class="text-gray-400">{{ $log->created_at->diffForHumans() }}</span>
+                                    </li>
+                                @endforeach
+                            </ul>
+                        @endif
+                    </div>
                 </div>
-            </div>
+            @endcan
 
             @can('reports.view')
                 <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6 flex flex-wrap items-center justify-between gap-4">

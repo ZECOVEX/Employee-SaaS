@@ -35,11 +35,19 @@ class SupportTicket extends Model
         ];
     }
 
+    /**
+     * The requesting user (nullable — guests may file by email only).
+     *
+     * @return BelongsTo<User, $this>
+     */
     public function requester(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
     }
 
+    /**
+     * @return BelongsTo<User, $this>
+     */
     public function resolver(): BelongsTo
     {
         return $this->belongsTo(User::class, 'resolved_by');

@@ -25,7 +25,7 @@ class ReportService
     private array $ledgerCache = [];
 
     /**
-     * Scheduled workdays of a month (weekday ∧ non-holiday): date => true.
+     * Scheduled workdays of a month (weekday âˆ§ non-holiday): date => true.
      *
      * @return array<string, true>
      */
@@ -65,7 +65,7 @@ class ReportService
     }
 
     /**
-     * One employee's monthly report row (§41 Monthly Report). Absent covers
+     * One employee's monthly report row (Â§41 Monthly Report). Absent covers
      * both stamped ABSENT rows and scheduled days with no data at all.
      *
      * @param  array<string, true>  $ledger
@@ -126,7 +126,7 @@ class ReportService
 
     /**
      * Counts + expected/capped-worked minutes for an arbitrary date range
-     * (§39 month & week filters). Same classification rules as
+     * (Â§39 month & week filters). Same classification rules as
      * monthlyTotals, but builds its own ledger and tracks expected minutes
      * and per-day capped worked minutes (overtime never inflates "worked"),
      * counting only elapsed scheduled days.
@@ -220,7 +220,7 @@ class ReportService
             }
         }
 
-        // Absences only up to today — future days are not absent.
+        // Absences only up to today â€” future days are not absent.
         $totals['absent'] = max(
             0,
             $elapsedScheduled - $totals['present'] - $totals['half'] - $totals['leave'],
@@ -322,7 +322,7 @@ class ReportService
 
     /**
      * Current-month attendance rate per department (employees without any
-     * rows count as zero attended days — they are part of the denominator).
+     * rows count as zero attended days â€” they are part of the denominator).
      *
      * @param  array<string, true>  $ledger
      * @return list<array{name: string, employees: int, rate: float, attended: int, late_minutes: int}>
@@ -379,7 +379,7 @@ class ReportService
     }
 
     /**
-     * Late arrivals per weekday (1 = Monday … 7 = Sunday) for the current month.
+     * Late arrivals per weekday (1 = Monday â€¦ 7 = Sunday) for the current month.
      *
      * @return list<array{label: string, count: int}>
      */
@@ -440,7 +440,7 @@ class ReportService
     }
 
     /**
-     * Countable overtime hours per month for the last N months — approved
+     * Countable overtime hours per month for the last N months â€” approved
      * and pending split, matching the risk-limit accounting (OT phase).
      *
      * @return list<array{month: string, label: string, hours: float, approved: float, pending: float}>

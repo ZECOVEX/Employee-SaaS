@@ -254,7 +254,7 @@ class ReportController extends Controller
                 }
             });
 
-        $employees = Employee::with(['user:id,name', 'department:id,name'])
+        $employees = Employee::with(['user:id,name', 'department:id,name', 'organization'])
             ->where('status', 'active')
             ->when(! empty($filters['employee_id']), fn ($q) => $q->where('id', (int) $filters['employee_id']))
             ->when(! empty($filters['department_id']), fn ($q) => $q->where('department_id', (int) $filters['department_id']))
@@ -329,10 +329,16 @@ class ReportController extends Controller
             ->orderBy('employee_code')
             ->get();
 
+        // Two batched effective-dating lookups (month start, then the
+        // cutoff fallback) instead of up to two per employee.
+        $byEmployee = SalaryRecord::effectiveForDate($organizationId, $start->toDateString());
+        $cutoffByEmployee = $cutoff === $start->toDateString()
+            ? $byEmployee
+            : SalaryRecord::effectiveForDate($organizationId, $cutoff);
+
         $rows = [];
         foreach ($employees as $employee) {
-            $record = SalaryRecord::effectiveFor($organizationId, $employee->id, $start->toDateString())
-                ?? SalaryRecord::effectiveFor($organizationId, $employee->id, $cutoff);
+            $record = $byEmployee[$employee->id] ?? $cutoffByEmployee[$employee->id] ?? null;
 
             $rows[] = [
                 'name' => $employee->user?->name ?? '—',

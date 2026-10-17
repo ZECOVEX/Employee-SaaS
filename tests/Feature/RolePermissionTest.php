@@ -96,4 +96,55 @@ class RolePermissionTest extends TestCase
             $response->assertSee(Role::where('organization_id', $org->id)->where('slug', $slug)->first()->name);
         }
     }
+
+    public function test_delegated_role_editor_cannot_grant_beyond_their_own_permissions(): void
+    {
+        ['organization' => $org, 'roles' => $roles] = $this->makeOrganization();
+        $admin = $this->makeUser($org, 'company_admin', $roles);
+        $hr = $this->makeUser($org, 'hr', $roles);
+        $manager = $roles['manager'];
+
+        // Delegate role editing to HR — a legitimate admin action.
+        $this->actingAs($admin)
+            ->put(route('roles.update', $roles['hr']), [
+                'permissions' => [
+                    ...$roles['hr']->load('permissions')->permissions->pluck('key')->all(),
+                    'users.manage',
+                ],
+            ])
+            ->assertRedirect(route('roles.index'));
+
+        $hr->unsetRelation('roles');
+        $before = $manager->load('permissions')->permissions->pluck('key')->sort()->values()->all();
+
+        // HR may keep existing keys and grant self-scope keys HR does not
+        // hold (own-team / own-data)…
+        $this->actingAs($hr)
+            ->put(route('roles.update', $manager), [
+                'permissions' => [...$before, 'salary.view_own'],
+            ])
+            ->assertRedirect(route('roles.index'));
+
+        // …but may NOT grant a permission HR does not hold.
+        $this->actingAs($hr)
+            ->from(route('roles.edit', $manager))
+            ->put(route('roles.update', $manager), [
+                'permissions' => [...$before, 'salary.view_own', 'audit.view'],
+            ])
+            ->assertSessionHasErrors('permissions');
+
+        $keys = $manager->refresh()->permissions->pluck('key')->sort()->values()->all();
+        $this->assertContains('salary.view_own', $keys);
+        $this->assertNotContains('audit.view', $keys);
+
+        // Removals are always allowed.
+        $this->actingAs($hr)
+            ->put(route('roles.update', $manager), ['permissions' => ['org.view']])
+            ->assertRedirect(route('roles.index'));
+
+        $this->assertSame(
+            ['org.view'],
+            $manager->refresh()->permissions->pluck('key')->sort()->values()->all(),
+        );
+    }
 }

@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 /**
@@ -63,6 +64,19 @@ class RolePermissionController extends Controller
 
         $old = $role->permissions->pluck('key')->sort()->values()->all();
         $new = collect($data['permissions'])->sort()->values()->all();
+
+        // Only *added* keys must be grantable by the actor (removals are
+        // always fine); delegated editors cannot widen beyond their own hold.
+        $denied = array_values(array_diff(
+            array_diff($new, $old),
+            $request->user()->grantablePermissionKeys(),
+        ));
+
+        if ($denied !== []) {
+            throw ValidationException::withMessages([
+                'permissions' => 'You cannot grant: '.implode(', ', $denied).'.',
+            ]);
+        }
 
         $ids = DB::table('permissions')->whereIn('key', $new)->pluck('id');
         $role->permissions()->sync($ids);
