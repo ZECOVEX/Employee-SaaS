@@ -99,7 +99,11 @@
                     <div class="flex items-center justify-between mb-2">
                         <h3 class="font-semibold text-gray-800">Salary</h3>
                         <a href="{{ route('salary.show', $employee) }}" wire:navigate class="text-sm text-indigo-600 hover:underline">
-                            Salary history →
+                            @can('salary.edit')
+                                Change salary →
+                            @else
+                                Salary history →
+                            @endcan
                         </a>
                     </div>
                     @if ($currentSalary)

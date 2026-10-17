@@ -74,7 +74,7 @@
                     <div>
                         <h4 class="text-sm font-semibold text-gray-800">Salary &amp; deductions</h4>
                         <p class="mt-1 text-xs text-gray-500">
-                            Rules used for the monthly salary estimate, late/absence deductions and payslips (§28).
+                            Rules used for the monthly salary estimate, late/absence deductions and payslips.
                         </p>
                     </div>
 

@@ -524,7 +524,7 @@
                         <div>
                             <h3 class="font-semibold text-gray-800">Estimated net salary</h3>
                             <p class="text-xs text-gray-500 mt-1">
-                                Progressive estimate from attendance, leave and your salary record (§28).
+                                Progressive estimate from attendance, leave and your salary record.
                                 The final figure comes from the payslip.
                             </p>
                         </div>

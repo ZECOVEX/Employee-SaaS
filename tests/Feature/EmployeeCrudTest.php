@@ -352,7 +352,9 @@ class EmployeeCrudTest extends TestCase
             ->assertSee('Monthly Status')
             ->assertSee('Leave')
             ->assertSee('NFC Card')
-            ->assertSee('Audit History');
+            ->assertSee('Audit History')
+            // Salary card action (salary.edit holders get the change label).
+            ->assertSee('Change salary');
     }
 
     public function test_manager_dropdown_never_leaks_other_tenants(): void

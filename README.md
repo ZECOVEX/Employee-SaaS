@@ -173,11 +173,13 @@ Open http://localhost:8000 — the entrypoint generates `APP_KEY`, caches config
 - **Correctness**: the overtime pay-visibility stale-cache bug was root-caused to Laravel caching controller instances (and their constructor-injected services) across requests in one process — the offending memos were removed, and the hourly-rate cache key now includes the employee id
 - **Performance**: salary lookups batched in the salary list and report pages (`SalaryRecord::effectiveForDate()`), organizations eager-loaded into score loops, and composite indexes added for NFC punch lookups, daily-attendance rows and audit-log actor queries
 - **Grant hardening**: role edits and API key issuance now intersect requested permissions/abilities with what the actor may grant (`User::grantablePermissionKeys()`) — delegated editors can no longer widen their own access, while company/platform admins are unrestricted
+- **Two reported gaps fixed**: the employee *create* form now offers the profile-photo upload (the field lived only in the edit form, and create lacked multipart encoding), and NFC cards can be blocked **and unblocked** while revocation remains permanently terminal
+- **Salary change path surfaced**: changing a salary = adding a new effective-dated record via Payroll → Salary → History/Add → "Add salary record" (`salary.edit`, Company Admin by default); view-only users now see *why* the form is absent on the salary page, and the profile salary card links **Change salary** for editors
 
 ## Tests & checks
 
 ```bash
-php artisan test        # 493 tests
+php artisan test        # 495 tests
 composer format         # Pint code style (app tests routes database bootstrap resources)
 composer analyse        # Larastan level 5 (phpstan.neon + baseline)
 composer check          # format + analyse + test

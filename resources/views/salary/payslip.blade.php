@@ -182,7 +182,7 @@
                     <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
                         <div>
                             <h3 class="font-semibold text-gray-800">Revision history</h3>
-                            <p class="text-xs text-gray-500 mt-1">Every revision is kept forever — nothing is overwritten (§28).</p>
+                            <p class="text-xs text-gray-500 mt-1">Every revision is kept forever — nothing is overwritten.</p>
                         </div>
                         @if ($canRevise)
                             <form action="{{ route('payslips.revise', [$employee, $payslip]) }}" method="POST">

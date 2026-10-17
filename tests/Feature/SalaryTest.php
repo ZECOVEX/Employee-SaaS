@@ -83,6 +83,12 @@ class SalaryTest extends TestCase
                 ->where('action', 'salary.created')
                 ->count(),
         );
+
+        // The admin sees the change form on the history page.
+        $this->actingAs($admin)
+            ->get(route('salary.show', $employee))
+            ->assertOk()
+            ->assertSee('Add salary record');
     }
 
     public function test_two_records_cannot_start_on_the_same_date(): void
@@ -129,7 +135,12 @@ class SalaryTest extends TestCase
             ->post(route('salary.store', $employee), ['basic_salary' => 1, 'effective_from' => '2026-01-01'])
             ->assertForbidden();
 
-        $this->actingAs($hr)->get(route('salary.show', $employee))->assertOk();
+        // Viewers get history plus an explanation — never the form.
+        $this->actingAs($hr)
+            ->get(route('salary.show', $employee))
+            ->assertOk()
+            ->assertSee('View-only access')
+            ->assertDontSee('Add salary record');
     }
 
     public function test_salary_routes_are_tenant_isolated(): void

@@ -106,6 +106,27 @@ class PayslipTest extends TestCase
             ->count());
     }
 
+    public function test_period_accepts_a_calendar_date_and_normalizes_it_to_its_month(): void
+    {
+        $this->travelTo(Carbon::parse('2026-10-05 10:00:00'));
+        [, $admin, $user, $employee] = $this->bootPayslip('PayCal');
+        $this->punchMonth($employee, $user, '2026-09');
+
+        $this->actingAs($admin)
+            ->post(route('payslips.store', $employee), ['period' => '2026-09-17'])
+            ->assertRedirect(route('salary.show', $employee))
+            ->assertSessionHasNoErrors();
+
+        $payslip = Payslip::withoutGlobalScopes()->where('employee_id', $employee->id)->firstOrFail();
+        $this->assertSame('2026-09', $payslip->period);
+
+        // The form field is a calendar picker (date input) capped at today.
+        $response = $this->actingAs($admin)->get(route('salary.show', $employee));
+        $response->assertOk();
+        $this->assertMatchesRegularExpression('/<input[^>]*name="period"[^>]*type="date"/', $response->getContent());
+        $response->assertSee('Pick any date in the month', false);
+    }
+
     public function test_future_and_malformed_periods_and_duplicates_are_rejected(): void
     {
         $this->travelTo(Carbon::parse('2026-09-15 10:00:00'));

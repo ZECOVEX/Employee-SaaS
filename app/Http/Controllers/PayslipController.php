@@ -34,13 +34,13 @@ class PayslipController extends Controller
         Gate::authorize('salary.edit');
 
         $data = $request->validate([
-            'period' => ['required', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/'],
+            'period' => ['required', 'regex:/^\d{4}-(0[1-9]|1[0-2])(?:-(?:0[1-9]|[12]\d|3[01]))?$/'],
             'notes' => ['nullable', 'string', 'max:500'],
         ], [
-            'period.regex' => 'The period must be in YYYY-MM format.',
+            'period.regex' => 'The period must be a month in YYYY-MM format, or any date inside that month.',
         ]);
 
-        $period = $data['period'];
+        $period = substr($data['period'], 0, 7);
         $tz = $request->user()->organization?->timezone ?? 'UTC';
         $today = Carbon::now($tz);
 

@@ -63,7 +63,7 @@
                     <div>
                         <h3 class="font-semibold text-gray-800">Finalized payslips</h3>
                         <p class="text-xs text-gray-500 mt-1">
-                            Month-end payroll records are frozen snapshots — later attendance or rule changes never touch them (§28).
+                            Month-end payroll records are frozen snapshots — later attendance or rule changes never touch them.
                             Corrections create a new revision; the old one stays as history.
                         </p>
                     </div>
@@ -116,8 +116,9 @@
                             @csrf
                             <div>
                                 <x-input-label for="payslip_period" value="Period" />
-                                <x-text-input id="payslip_period" name="period" type="month" class="mt-1 block"
-                                              :value="old('period', $today ? substr($today, 0, 7) : '')" required />
+                                <x-text-input id="payslip_period" name="period" type="date" class="mt-1 block"
+                                              :value="old('period', $today)" max="{{ $today }}" required />
+                                <p class="mt-1 text-xs text-gray-500">Pick any date in the month — the payslip covers the whole month.</p>
                                 <x-input-error :messages="$errors->get('period')" class="mt-2" />
                             </div>
                             <div class="flex-1 min-w-48">
@@ -140,7 +141,7 @@
                 <div class="px-6 py-4 border-b border-gray-200">
                     <h3 class="font-semibold text-gray-800">History</h3>
                     <p class="text-xs text-gray-500 mt-1">
-                        Salary records are effective-dated and never overwritten — past reports keep their original figures (§28).
+                        Salary records are effective-dated and never overwritten — past reports keep their original figures.
                     </p>
                 </div>
                 <table class="min-w-full divide-y divide-gray-200 text-sm">
@@ -236,6 +237,15 @@
                             </button>
                         </div>
                     </form>
+                </div>
+            @else
+                <div class="bg-white shadow-sm sm:rounded-lg p-6">
+                    <h3 class="font-semibold text-gray-800 mb-1">View-only access</h3>
+                    <p class="text-sm text-gray-500">
+                        You can review salary history but not change it. Changing a salary
+                        requires the <code>salary.edit</code> permission — the Company Admin
+                        role has it by default; an admin can add it to your role under Settings → Roles.
+                    </p>
                 </div>
             @endif
         </div>

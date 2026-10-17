@@ -65,7 +65,7 @@
                             Effective salary records — {{ \Carbon\Carbon::createFromFormat('Y-m-d', $filters['month'].'-01')->format('F Y') }}
                         </h3>
                         <p class="text-xs text-gray-500 mt-1">
-                            Historical figures stay correct: each month shows the record in effect for that period (§28).
+                            Historical figures stay correct: each month shows the record in effect for that period.
                             Restricted to users with salary access.
                         </p>
                     </div>
