@@ -3,20 +3,32 @@
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <meta name="csrf-token" content="LnrctmV70QTn5hYF2qcn0i7Ol9Hyi3jXHjAO4i6R">
+        <meta name="csrf-token" content="YL2LbB5jZsNjpBBi52Ul96PGqhThjndIUEkGY8S3">
 
         <title>EmployeeSaaS</title>
 
+        <script>
+            (function () {
+                try {
+                    var stored = localStorage.getItem('theme');
+                    var dark = stored ? stored === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+                    if (dark) {
+                        document.documentElement.classList.add('dark');
+                    }
+                } catch (e) {}
+            })();
+        </script>
+
         <!-- Fonts -->
         <link rel="preconnect" href="https://fonts.bunny.net">
-        <link href="https://fonts.bunny.net/css?family=figtree:400,500,600&display=swap" rel="stylesheet" />
+        <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700&display=swap" rel="stylesheet" />
 
         <!-- Scripts -->
-        <link rel="preload" as="style" href="http://localhost:8000/build/assets/app-wybNmdKK.css" /><link rel="modulepreload" as="script" href="http://localhost:8000/build/assets/app-BvRk9kiK.js" /><link rel="stylesheet" href="http://localhost:8000/build/assets/app-wybNmdKK.css" data-navigate-track="reload" /><script type="module" src="http://localhost:8000/build/assets/app-BvRk9kiK.js" data-navigate-track="reload"></script>    <!-- Livewire Styles --><style >[wire\:loading][wire\:loading], [wire\:loading\.delay][wire\:loading\.delay], [wire\:loading\.inline-block][wire\:loading\.inline-block], [wire\:loading\.inline][wire\:loading\.inline], [wire\:loading\.block][wire\:loading\.block], [wire\:loading\.flex][wire\:loading\.flex], [wire\:loading\.table][wire\:loading\.table], [wire\:loading\.grid][wire\:loading\.grid], [wire\:loading\.inline-flex][wire\:loading\.inline-flex] {display: none;}[wire\:loading\.delay\.none][wire\:loading\.delay\.none], [wire\:loading\.delay\.shortest][wire\:loading\.delay\.shortest], [wire\:loading\.delay\.shorter][wire\:loading\.delay\.shorter], [wire\:loading\.delay\.short][wire\:loading\.delay\.short], [wire\:loading\.delay\.default][wire\:loading\.delay\.default], [wire\:loading\.delay\.long][wire\:loading\.delay\.long], [wire\:loading\.delay\.longer][wire\:loading\.delay\.longer], [wire\:loading\.delay\.longest][wire\:loading\.delay\.longest] {display: none;}[wire\:offline][wire\:offline] {display: none;}[wire\:dirty]:not(textarea):not(input):not(select) {display: none;}:root {--livewire-progress-bar-color: #2299dd;}[x-cloak="x-cloak"],[x-cloak=""] {display: none !important;}[wire\:cloak="wire:cloak"],[wire\:cloak=""] {display: none !important;}dialog#livewire-error::backdrop {background-color: rgba(0, 0, 0, .6);}</style>
+        <link rel="preload" as="style" href="http://localhost:8000/build/assets/app-rF70G2NJ.css" /><link rel="modulepreload" as="script" href="http://localhost:8000/build/assets/app-BvRk9kiK.js" /><link rel="stylesheet" href="http://localhost:8000/build/assets/app-rF70G2NJ.css" data-navigate-track="reload" /><script type="module" src="http://localhost:8000/build/assets/app-BvRk9kiK.js" data-navigate-track="reload"></script>    <!-- Livewire Styles --><style >[wire\:loading][wire\:loading], [wire\:loading\.delay][wire\:loading\.delay], [wire\:loading\.inline-block][wire\:loading\.inline-block], [wire\:loading\.inline][wire\:loading\.inline], [wire\:loading\.block][wire\:loading\.block], [wire\:loading\.flex][wire\:loading\.flex], [wire\:loading\.table][wire\:loading\.table], [wire\:loading\.grid][wire\:loading\.grid], [wire\:loading\.inline-flex][wire\:loading\.inline-flex] {display: none;}[wire\:loading\.delay\.none][wire\:loading\.delay\.none], [wire\:loading\.delay\.shortest][wire\:loading\.delay\.shortest], [wire\:loading\.delay\.shorter][wire\:loading\.delay\.shorter], [wire\:loading\.delay\.short][wire\:loading\.delay\.short], [wire\:loading\.delay\.default][wire\:loading\.delay\.default], [wire\:loading\.delay\.long][wire\:loading\.delay\.long], [wire\:loading\.delay\.longer][wire\:loading\.delay\.longer], [wire\:loading\.delay\.longest][wire\:loading\.delay\.longest] {display: none;}[wire\:offline][wire\:offline] {display: none;}[wire\:dirty]:not(textarea):not(input):not(select) {display: none;}:root {--livewire-progress-bar-color: #2299dd;}[x-cloak="x-cloak"],[x-cloak=""] {display: none !important;}[wire\:cloak="wire:cloak"],[wire\:cloak=""] {display: none !important;}dialog#livewire-error::backdrop {background-color: rgba(0, 0, 0, .6);}</style>
 </head>
     <body class="font-sans antialiased">
         <div class="min-h-screen bg-gray-100">
-            <nav wire:snapshot="{&quot;data&quot;:[],&quot;memo&quot;:{&quot;id&quot;:&quot;Uz9YZsJhIva96B1Zd2jB&quot;,&quot;name&quot;:&quot;layout.navigation&quot;,&quot;path&quot;:&quot;dashboard\/admin&quot;,&quot;method&quot;:&quot;GET&quot;,&quot;release&quot;:&quot;a-a-a&quot;,&quot;children&quot;:[],&quot;scripts&quot;:[],&quot;assets&quot;:[],&quot;errors&quot;:[],&quot;locale&quot;:&quot;en&quot;},&quot;checksum&quot;:&quot;a50dc4583d97b295a688f1fd694be89f0058af9b7405b2a1410a563da3bf7ff9&quot;}" wire:effects="[]" wire:id="Uz9YZsJhIva96B1Zd2jB" x-data="{ open: false }" class="bg-white border-b border-gray-100">
+            <nav wire:snapshot="{&quot;data&quot;:[],&quot;memo&quot;:{&quot;id&quot;:&quot;dWSBgA5gB682At1OigeO&quot;,&quot;name&quot;:&quot;layout.navigation&quot;,&quot;path&quot;:&quot;dashboard\/admin&quot;,&quot;method&quot;:&quot;GET&quot;,&quot;release&quot;:&quot;a-a-a&quot;,&quot;children&quot;:[],&quot;scripts&quot;:[],&quot;assets&quot;:[],&quot;errors&quot;:[],&quot;locale&quot;:&quot;en&quot;},&quot;checksum&quot;:&quot;2685784b7ade6bcead098855e93ea1eb58a0aac7f3e9f0dc25255fcb389b2855&quot;}" wire:effects="[]" wire:id="dWSBgA5gB682At1OigeO" x-data="{ open: false }" class="bg-white border-b border-gray-100">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex justify-between h-16">
             <div class="flex">
@@ -304,6 +316,16 @@
                         </div>
                     </div>
                 <!--[if ENDBLOCK]><![endif]-->
+                <button type="button" class="app-theme-toggle me-2 inline-flex items-center px-2 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-gray-500 bg-white hover:text-gray-700 focus:outline-none transition ease-in-out duration-150"
+                        title="Toggle dark mode" aria-label="Toggle dark mode">
+                    <svg class="h-5 w-5 dark:hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+                    </svg>
+                    <svg class="h-5 w-5 hidden dark:block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" />
+                    </svg>
+                </button>
+
                 <div class="relative" x-data="{ open: false }" @click.outside="open = false" @close.stop="open = false">
     <div @click="open = ! open">
         <button class="relative me-2 inline-flex items-center px-2 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-gray-500 bg-white hover:text-gray-700 focus:outline-none transition ease-in-out duration-150"
@@ -369,6 +391,15 @@
             </div>
 
             <div class="-me-2 flex items-center xl:hidden">
+                <button type="button" class="app-theme-toggle inline-flex items-center justify-center p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none focus:bg-gray-100 focus:text-gray-500 transition duration-150 ease-in-out"
+                        title="Toggle dark mode" aria-label="Toggle dark mode">
+                    <svg class="h-5 w-5 dark:hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+                    </svg>
+                    <svg class="h-5 w-5 hidden dark:block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" />
+                    </svg>
+                </button>
                 <button @click="open = ! open" class="inline-flex items-center justify-center p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none focus:bg-gray-100 focus:text-gray-500 transition duration-150 ease-in-out">
                     <svg class="h-6 w-6" stroke="currentColor" fill="none" viewBox="0 0 24 24">
                         <path :class="{'hidden': open, 'inline-flex': ! open }" class="inline-flex" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
@@ -547,7 +578,7 @@
                     <div class="font-medium text-base text-gray-800">
                         Company_admin User
                         <!--[if BLOCK]><![endif]--><!--[if ENDBLOCK]><![endif]-->                    </div>
-                    <div class="font-medium text-sm text-gray-500">company_admin-6ad357000004c@example.test</div>
+                    <div class="font-medium text-sm text-gray-500">company_admin-6ad468a70db87@example.test</div>
                 </div>
             </div>
             <div class="mt-3 space-y-1">
@@ -581,7 +612,7 @@
             <div class="bg-white shadow-sm sm:rounded-lg">
                 <div class="px-6 pt-5 pb-2 flex items-baseline justify-between">
                     <h3 class="font-semibold text-gray-800">Today's attendance</h3>
-                    <span class="text-xs text-gray-400">Saturday, 17 Oct 2026</span>
+                    <span class="text-xs text-gray-400">Sunday, 18 Oct 2026</span>
                 </div>
                 <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 px-6 pb-6">
                     <div class="rounded-lg bg-green-50 p-4"><div class="text-sm text-green-700">Present today</div>
@@ -651,7 +682,7 @@
                 <ul class="max-h-64 space-y-1.5 overflow-y-auto pe-1">
                                             <li class="flex items-baseline justify-between gap-3 text-sm">
                             <span class="min-w-0 truncate font-medium text-gray-800">Company_admin User</span>
-                            <span class="shrink-0 text-right text-xs text-gray-500">company_admin-6ad357000004c@example.test</span>
+                            <span class="shrink-0 text-right text-xs text-gray-500">company_admin-6ad468a70db87@example.test</span>
                         </li>
                                     </ul>
                             </div>
@@ -777,7 +808,19 @@
                 </div>
             </footer>
         </div>
+
+        <script>
+            if (!window.__zecovexThemeToggleBound) {
+                window.__zecovexThemeToggleBound = true;
+                document.addEventListener('click', function (e) {
+                    var btn = e.target.closest('.app-theme-toggle');
+                    if (!btn) return;
+                    var dark = document.documentElement.classList.toggle('dark');
+                    try { localStorage.setItem('theme', dark ? 'dark' : 'light'); } catch (err) {}
+                });
+            }
+        </script>
     <!-- Livewire Scripts -->
-<script src="/livewire/livewire.js?id=6f2ea2c9"   data-csrf="LnrctmV70QTn5hYF2qcn0i7Ol9Hyi3jXHjAO4i6R" data-update-uri="/livewire/update" data-navigate-once="true"></script>
+<script src="/livewire/livewire.js?id=6f2ea2c9"   data-csrf="YL2LbB5jZsNjpBBi52Ul96PGqhThjndIUEkGY8S3" data-update-uri="/livewire/update" data-navigate-once="true"></script>
 </body>
 </html>

@@ -1,3 +1,363 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* =====================================================================
+   Zecovex application theme — light & dark, blue accent, dense type.
+
+   Structure:
+   1. Shared foundation — applies to the app in BOTH modes
+      (welcome.blade.php marks its root with class="landing" and keeps
+      its own design untouched).
+   2. Light mode — stock Tailwind surfaces with the indigo accent
+      remapped to blue.
+   3. Dark mode — everything under html.dark: near-black surfaces,
+      hairline rings instead of shadows, blue accent brightened for
+      dark backgrounds, dark native controls and scrollbars.
+
+   Theme is toggled from the nav; state lives in localStorage('theme')
+   and follows the system preference when unset.
+   ===================================================================== */
+
+/* ---------------------------------------------------------------------
+   1. Shared foundation (both modes)
+   --------------------------------------------------------------------- */
+
+html:not(.landing) {
+    font-size: 15px;
+}
+
+html:not(.landing) body {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    line-height: 1.55;
+}
+
+/* ---------- soft & friendly radius scale (Stripe-like) ---------- */
+
+html:not(.landing) .rounded-sm { border-radius: 6px; }
+html:not(.landing) .rounded { border-radius: 8px; }
+html:not(.landing) .rounded-md { border-radius: 10px; }
+html:not(.landing) .rounded-b-md { border-bottom-left-radius: 10px; border-bottom-right-radius: 10px; }
+html:not(.landing) .rounded-lg { border-radius: 12px; }
+html:not(.landing) .rounded-xl { border-radius: 16px; }
+html:not(.landing) .rounded-2xl { border-radius: 20px; }
+
+/* ---------- cool blue-tinted neutrals (light mode) ---------- */
+
+html:not(.landing) .bg-gray-50 { background-color: #f8fafc; }
+html:not(.landing) .hover\:bg-gray-50:hover { background-color: #f1f5f9; }
+html:not(.landing) .bg-gray-100 { background-color: #f6f9fc; }
+html:not(.landing) .hover\:bg-gray-100:hover { background-color: #e9eef5; }
+html:not(.landing) .focus\:bg-gray-100:focus { background-color: #e9eef5; }
+html:not(.landing) .bg-gray-200 { background-color: #e9eef5; }
+html:not(.landing) .bg-gray-300 { background-color: #d0d5dd; }
+
+html:not(.landing) .border-gray-100 { border-color: #edf1f6; }
+html:not(.landing) .border-gray-200 { border-color: #e3e8ee; }
+html:not(.landing) .border-gray-300 { border-color: #d0d5dd; }
+html:not(.landing) .divide-gray-100 > :not([hidden]) ~ :not([hidden]) { border-color: #edf1f6; }
+html:not(.landing) .divide-gray-200 > :not([hidden]) ~ :not([hidden]) { border-color: #e3e8ee; }
+
+/* ---------- Stripe ink text scale (light mode) ---------- */
+
+html:not(.landing) .text-gray-900 { color: #0a2540; }
+html:not(.landing) .text-gray-700 { color: #425466; }
+html:not(.landing) .text-gray-600 { color: #697386; }
+html:not(.landing) .text-gray-500 { color: #8792a2; }
+html:not(.landing) .text-gray-400 { color: #a3acb9; }
+
+/* ---------- soft layered shadows ----------
+   Every rule sets --tw-shadow and re-emits Tailwind's ring chain so
+   focus:ring utilities keep composing on top of the custom shadow. */
+
+html:not(.landing) .shadow-sm {
+    --tw-shadow: 0 1px 2px 0 rgba(16, 24, 40, 0.05), 0 1px 3px 0 rgba(16, 24, 40, 0.1);
+    box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+html:not(.landing) .shadow {
+    --tw-shadow: 0 4px 8px -2px rgba(16, 24, 40, 0.06), 0 2px 4px -2px rgba(16, 24, 40, 0.08);
+    box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+html:not(.landing) .shadow-md {
+    --tw-shadow: 0 6px 16px -4px rgba(16, 24, 40, 0.1), 0 2px 6px -2px rgba(16, 24, 40, 0.06);
+    box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+html:not(.landing) .shadow-lg {
+    --tw-shadow: 0 12px 24px -6px rgba(16, 24, 40, 0.12), 0 4px 8px -4px rgba(16, 24, 40, 0.08);
+    box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+html:not(.landing) .shadow-xl {
+    --tw-shadow: 0 20px 40px -8px rgba(16, 24, 40, 0.16), 0 8px 16px -6px rgba(16, 24, 40, 0.1);
+    box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+/* Form controls keep a quiet inset instead of card elevation. */
+html:not(.landing) :is(input, select, textarea).shadow-sm {
+    --tw-shadow: inset 0 1px 2px 0 rgba(16, 24, 40, 0.04);
+    box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+/* ---------- primary actions: blue with a soft lift ---------- */
+
+html:not(.landing) .bg-gray-800 {
+    background-color: #2563eb;
+    --tw-shadow: 0 1px 2px 0 rgba(37, 99, 235, 0.3), 0 1px 3px 0 rgba(37, 99, 235, 0.18);
+    box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+html:not(.landing) .hover\:bg-gray-700:hover {
+    background-color: #1d4ed8;
+    --tw-shadow: 0 2px 4px 0 rgba(37, 99, 235, 0.32), 0 2px 6px 0 rgba(37, 99, 235, 0.22);
+    box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+html:not(.landing) ::selection {
+    background: rgba(59, 130, 246, 0.35);
+}
+
+html:not(.landing) h1,
+html:not(.landing) h2,
+html:not(.landing) h3,
+html:not(.landing) h4 {
+    letter-spacing: -0.011em;
+}
+
+html:not(.landing) table {
+    font-variant-numeric: tabular-nums;
+}
+
+html:not(.landing) input[type='checkbox'],
+html:not(.landing) input[type='radio'] {
+    accent-color: #2563eb;
+}
+
+/* Primary actions are blue in both modes (bg-gray-800 family = buttons;
+   the soft-lift shadow lives in the design layer above). */
+html:not(.landing) .focus\:bg-gray-700:focus { background-color: #1d4ed8; }
+html:not(.landing) .hover\:bg-gray-900:hover { background-color: #1e40af; }
+html:not(.landing) .active\:bg-gray-900:active { background-color: #1e40af; }
+
+/* Indigo → blue, light-mode values (dark overrides below). */
+html:not(.landing) .text-indigo-400 { color: #60a5fa; }
+html:not(.landing) .text-indigo-500 { color: #3b82f6; }
+html:not(.landing) .text-indigo-600 { color: #2563eb; }
+html:not(.landing) .text-indigo-700 { color: #1d4ed8; }
+html:not(.landing) .text-indigo-800 { color: #1e40af; }
+html:not(.landing) .hover\:text-indigo-500:hover { color: #2563eb; }
+html:not(.landing) .hover\:text-indigo-600:hover { color: #1d4ed8; }
+
+html:not(.landing) .bg-indigo-50 { background-color: #eff6ff; }
+html:not(.landing) .bg-indigo-100 { background-color: #dbeafe; }
+html:not(.landing) .bg-indigo-400 { background-color: #60a5fa; }
+html:not(.landing) .bg-indigo-500 { background-color: #3b82f6; }
+html:not(.landing) .bg-indigo-600 { background-color: #2563eb; }
+html:not(.landing) .hover\:bg-indigo-50:hover { background-color: #dbeafe; }
+html:not(.landing) .hover\:bg-indigo-100:hover { background-color: #bfdbfe; }
+html:not(.landing) .hover\:bg-indigo-500:hover { background-color: #3b82f6; }
+html:not(.landing) .hover\:bg-indigo-600:hover { background-color: #1d4ed8; }
+html:not(.landing) .active\:bg-indigo-700:active { background-color: #1e40af; }
+
+html:not(.landing) .border-indigo-100 { border-color: #dbeafe; }
+html:not(.landing) .border-indigo-200 { border-color: #bfdbfe; }
+html:not(.landing) .border-indigo-400 { border-color: #3b82f6; }
+html:not(.landing) .border-indigo-500 { border-color: #3b82f6; }
+html:not(.landing) .border-indigo-600 { border-color: #2563eb; }
+html:not(.landing) .focus\:border-indigo-500:focus { border-color: #3b82f6; }
+html:not(.landing) .focus\:border-indigo-700:focus { border-color: #2563eb; }
+
+html:not(.landing) .ring-indigo-500 { --tw-ring-color: rgba(37, 99, 235, 0.45); }
+html:not(.landing) .ring-indigo-600 { --tw-ring-color: rgba(37, 99, 235, 0.5); }
+html:not(.landing) .focus\:ring-indigo-500:focus { --tw-ring-color: rgba(37, 99, 235, 0.5); }
+html:not(.landing) .focus\:ring-indigo-600:focus { --tw-ring-color: rgba(37, 99, 235, 0.55); }
+
+/* Print always goes back to paper, in either mode. */
+@media print {
+    html:not(.landing),
+    html:not(.landing) body {
+        color-scheme: light;
+        background: #ffffff !important;
+    }
+
+    html:not(.landing) *:not(svg):not(path):not(img) {
+        background-color: transparent !important;
+        color: #111827 !important;
+        border-color: #d1d5db !important;
+        box-shadow: none !important;
+    }
+}
+
+/* ---------------------------------------------------------------------
+   3. Dark mode — html.dark on the app root
+   --------------------------------------------------------------------- */
+
+html.dark:not(.landing) {
+    color-scheme: dark;
+    --tw-ring-offset-color: #0a0a0c;
+    background-color: #0a0a0c;
+
+    scrollbar-width: thin;
+    scrollbar-color: #3a3a42 transparent;
+}
+
+html.dark:not(.landing) body {
+    background-color: #0a0a0c;
+    color: #d4d4d8;
+}
+
+html.dark:not(.landing) ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+html.dark:not(.landing) ::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+html.dark:not(.landing) ::-webkit-scrollbar-thumb {
+    background-color: #33333b;
+    border-radius: 6px;
+    border: 2px solid #0a0a0c;
+}
+
+html.dark:not(.landing) ::-webkit-scrollbar-thumb:hover {
+    background-color: #45454e;
+}
+
+/* ---------- dark surfaces ---------- */
+html.dark:not(.landing) .bg-white { background-color: #131316; }
+html.dark:not(.landing) .bg-gray-50 { background-color: #0e0e11; }
+html.dark:not(.landing) .bg-gray-100 { background-color: #0a0a0c; }
+html.dark:not(.landing) .bg-gray-200 { background-color: #26262b; }
+html.dark:not(.landing) .bg-gray-300 { background-color: #3f3f47; }
+html.dark:not(.landing) .bg-gray-500 { background-color: #09090b; } /* modal scrim */
+html.dark:not(.landing) .bg-gray-700 { background-color: #3f3f46; }
+
+html.dark:not(.landing) .hover\:bg-gray-50:hover { background-color: #191920; }
+html.dark:not(.landing) .hover\:bg-gray-100:hover { background-color: #1c1c22; }
+html.dark:not(.landing) .hover\:bg-gray-200:hover { background-color: #212128; }
+html.dark:not(.landing) .focus\:bg-gray-100:focus { background-color: #1c1c22; }
+
+/* ---------- dark text ---------- */
+html.dark:not(.landing) .text-black { color: #fafafa; }
+html.dark:not(.landing) .text-gray-900 { color: #fafafa; }
+html.dark:not(.landing) .text-gray-800 { color: #f0f0f2; }
+html.dark:not(.landing) .text-gray-700 { color: #d8d8dc; }
+html.dark:not(.landing) .text-gray-600 { color: #a5a5ae; }
+html.dark:not(.landing) .text-gray-500 { color: #77777f; }
+html.dark:not(.landing) .text-gray-400 { color: #56565e; }
+html.dark:not(.landing) .text-gray-300 { color: #c9c9cf; }
+
+html.dark:not(.landing) .hover\:text-gray-900:hover { color: #ffffff; }
+html.dark:not(.landing) .hover\:text-gray-800:hover { color: #f0f0f2; }
+html.dark:not(.landing) .hover\:text-gray-700:hover { color: #f0f0f2; }
+html.dark:not(.landing) .hover\:text-gray-600:hover { color: #c9c9cf; }
+html.dark:not(.landing) .hover\:text-gray-500:hover { color: #a5a5ae; }
+html.dark:not(.landing) .focus\:text-gray-700:focus { color: #f0f0f2; }
+
+/* ---------- dark borders & dividers ---------- */
+html.dark:not(.landing) .border-gray-100 { border-color: #1e1e23; }
+html.dark:not(.landing) .border-gray-200 { border-color: #26262b; }
+html.dark:not(.landing) .border-gray-300 { border-color: #3a3a42; }
+html.dark:not(.landing) .hover\:border-gray-300:hover { border-color: #4a4a52; }
+html.dark:not(.landing) .focus\:border-gray-300:focus { border-color: #3a3a42; }
+
+html.dark:not(.landing) .divide-gray-100 > :not([hidden]) ~ :not([hidden]) { border-color: #1e1e23; }
+html.dark:not(.landing) .divide-gray-200 > :not([hidden]) ~ :not([hidden]) { border-color: #26262b; }
+
+/* ---------- accent brightened for dark ---------- */
+html.dark:not(.landing) .text-indigo-500 { color: #60a5fa; }
+html.dark:not(.landing) .text-indigo-600 { color: #60a5fa; }
+html.dark:not(.landing) .text-indigo-700 { color: #93c5fd; }
+html.dark:not(.landing) .text-indigo-800 { color: #bfdbfe; }
+html.dark:not(.landing) .hover\:text-indigo-500:hover { color: #93c5fd; }
+html.dark:not(.landing) .hover\:text-indigo-600:hover { color: #93c5fd; }
+
+html.dark:not(.landing) .bg-indigo-50 { background-color: #13213c; }
+html.dark:not(.landing) .bg-indigo-100 { background-color: #1b2f57; }
+html.dark:not(.landing) .bg-indigo-400 { background-color: #3b82f6; }
+html.dark:not(.landing) .bg-indigo-500 { background-color: #3b82f6; }
+html.dark:not(.landing) .hover\:bg-indigo-50:hover { background-color: #17264a; }
+html.dark:not(.landing) .hover\:bg-indigo-100:hover { background-color: #213762; }
+html.dark:not(.landing) .hover\:bg-indigo-500:hover { background-color: #60a5fa; }
+
+html.dark:not(.landing) .border-indigo-100 { border-color: #1b2f57; }
+html.dark:not(.landing) .border-indigo-200 { border-color: #1e3a8a; }
+html.dark:not(.landing) .focus\:border-indigo-700:focus { border-color: #60a5fa; }
+
+html.dark:not(.landing) .ring-indigo-500 { --tw-ring-color: rgba(59, 130, 246, 0.5); }
+html.dark:not(.landing) .focus\:ring-indigo-500:focus { --tw-ring-color: rgba(59, 130, 246, 0.55); }
+html.dark:not(.landing) .focus\:ring-indigo-600:focus { --tw-ring-color: rgba(59, 130, 246, 0.6); }
+
+/* ---------- semantic status colors (dark tints) ---------- */
+html.dark:not(.landing) .bg-green-50 { background-color: #0b2318; }
+html.dark:not(.landing) .bg-green-100 { background-color: #11301f; }
+html.dark:not(.landing) .hover\:bg-green-50:hover { background-color: #0f2a1d; }
+html.dark:not(.landing) .text-green-600 { color: #4ade80; }
+html.dark:not(.landing) .text-green-700 { color: #6ee7a8; }
+html.dark:not(.landing) .text-green-800 { color: #86efac; }
+html.dark:not(.landing) .border-green-100 { border-color: #14532d; }
+html.dark:not(.landing) .border-green-200 { border-color: #14532d; }
+
+html.dark:not(.landing) .bg-red-50 { background-color: #2a1316; }
+html.dark:not(.landing) .bg-red-100 { background-color: #3a1a1e; }
+html.dark:not(.landing) .hover\:bg-red-50:hover { background-color: #33171b; }
+html.dark:not(.landing) .text-red-600 { color: #f87171; }
+html.dark:not(.landing) .text-red-700 { color: #fca5a5; }
+html.dark:not(.landing) .text-red-800 { color: #fecaca; }
+html.dark:not(.landing) .hover\:text-red-600:hover { color: #f87171; }
+html.dark:not(.landing) .border-red-100 { border-color: #7f1d1d; }
+html.dark:not(.landing) .border-red-200 { border-color: #7f1d1d; }
+
+html.dark:not(.landing) .bg-amber-50 { background-color: #251a0c; }
+html.dark:not(.landing) .bg-amber-100 { background-color: #33240f; }
+html.dark:not(.landing) .hover\:bg-amber-50:hover { background-color: #2c1f10; }
+html.dark:not(.landing) .text-amber-600 { color: #fbbf24; }
+html.dark:not(.landing) .text-amber-700 { color: #fcd34d; }
+html.dark:not(.landing) .text-amber-800 { color: #fde68a; }
+html.dark:not(.landing) .text-amber-900 { color: #fef3c7; }
+html.dark:not(.landing) .border-amber-200 { border-color: #713f12; }
+html.dark:not(.landing) .border-amber-400 { border-color: #854d0e; }
+
+html.dark:not(.landing) .bg-blue-50 { background-color: #0f1e3d; }
+html.dark:not(.landing) .bg-blue-100 { background-color: #152a52; }
+html.dark:not(.landing) .text-blue-600 { color: #60a5fa; }
+html.dark:not(.landing) .text-blue-700 { color: #93c5fd; }
+html.dark:not(.landing) .text-blue-800 { color: #bfdbfe; }
+html.dark:not(.landing) .border-blue-100 { border-color: #1e3a8a; }
+html.dark:not(.landing) .border-blue-200 { border-color: #1e3a8a; }
+
+html.dark:not(.landing) .bg-purple-50 { background-color: #1c1435; }
+html.dark:not(.landing) .bg-purple-100 { background-color: #251b47; }
+html.dark:not(.landing) .text-purple-600 { color: #a78bfa; }
+html.dark:not(.landing) .text-purple-700 { color: #c4b5fd; }
+html.dark:not(.landing) .text-purple-800 { color: #ddd6fe; }
+
+/* ---------- dark shadows → flat hairline rings (ring-chain safe) ---------- */
+html.dark:not(.landing) .shadow { --tw-shadow: 0 0 0 1px #1f1f25; box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow); }
+html.dark:not(.landing) .shadow-sm { --tw-shadow: 0 0 0 1px #1f1f25; box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow); }
+html.dark:not(.landing) .shadow-md { --tw-shadow: 0 0 0 1px #23232a, 0 6px 20px rgba(0, 0, 0, 0.45); box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow); }
+html.dark:not(.landing) .shadow-lg { --tw-shadow: 0 0 0 1px #23232a, 0 12px 32px rgba(0, 0, 0, 0.55); box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow); }
+html.dark:not(.landing) .shadow-xl { --tw-shadow: 0 0 0 1px #23232a, 0 20px 60px rgba(0, 0, 0, 0.65); box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow); }
+
+/* ---------- dark native controls ---------- */
+html.dark:not(.landing) :is(input, select, textarea):not([type='checkbox']):not([type='radio']) {
+    background-color: #131316;
+    color: #ededf0;
+}
+
+html.dark:not(.landing) ::placeholder {
+    color: #63636b;
+    opacity: 1;
+}
+
+html.dark:not(.landing) input[type='date']::-webkit-calendar-picker-indicator,
+html.dark:not(.landing) input[type='month']::-webkit-calendar-picker-indicator,
+html.dark:not(.landing) input[type='time']::-webkit-calendar-picker-indicator {
+    filter: invert(0.75);
+    cursor: pointer;
+}

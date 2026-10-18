@@ -175,11 +175,16 @@ Open http://localhost:8000 — the entrypoint generates `APP_KEY`, caches config
 - **Grant hardening**: role edits and API key issuance now intersect requested permissions/abilities with what the actor may grant (`User::grantablePermissionKeys()`) — delegated editors can no longer widen their own access, while company/platform admins are unrestricted
 - **Two reported gaps fixed**: the employee *create* form now offers the profile-photo upload (the field lived only in the edit form, and create lacked multipart encoding), and NFC cards can be blocked **and unblocked** while revocation remains permanently terminal
 - **Salary change path surfaced**: changing a salary = adding a new effective-dated record via Payroll → Salary → History/Add → "Add salary record" (`salary.edit`, Company Admin by default); view-only users now see *why* the form is absent on the salary page, and the profile salary card links **Change salary** for editors
+- **Payroll/status polish**: the payslip Period field is a calendar date picker (any day of the month, normalized to `YYYY-MM` server-side), monthly-status snapshots and the profile Monthly tab never show months before the employee's joining month, and spec-notation markers like "(§28)" no longer leak into the UI
+
+### Post-Phase 27 — Light/dark app theme with nav toggle
+- **Both modes, one click**: every authenticated page now supports a true light **and** dark mode via moon/sun toggle buttons in the top nav (desktop next to the bell, mobile next to the hamburger); the choice persists in `localStorage.theme`, follows the OS `prefers-color-scheme` on first visit, and is applied before first paint (no flash) on both the app and login shells
+- **Soft & friendly theme patterns (Stripe-like, one global layer)**: cool blue-tinted neutrals (`#f6f9fc` surfaces, `#e3e8ee` hairlines), Stripe ink text scale (`#0a2540` headings), one-notch-rounders radii (10–16px), layered soft shadows with focus rings that compose correctly, inset inputs, and a blue primary button with a soft lift — applied uniformly through `resources/css/app.css`, so every page restyles at once without touching 100+ views; dark mode keeps its near-black remap, and the landing page keeps its own separate theme untouched
 
 ## Tests & checks
 
 ```bash
-php artisan test        # 495 tests
+php artisan test        # 500 tests
 composer format         # Pint code style (app tests routes database bootstrap resources)
 composer analyse        # Larastan level 5 (phpstan.neon + baseline)
 composer check          # format + analyse + test

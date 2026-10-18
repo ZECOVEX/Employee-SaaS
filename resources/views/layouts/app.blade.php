@@ -7,9 +7,21 @@
 
         <title>{{ config('app.name', 'Laravel') }}</title>
 
+        <script>
+            (function () {
+                try {
+                    var stored = localStorage.getItem('theme');
+                    var dark = stored ? stored === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+                    if (dark) {
+                        document.documentElement.classList.add('dark');
+                    }
+                } catch (e) {}
+            })();
+        </script>
+
         <!-- Fonts -->
         <link rel="preconnect" href="https://fonts.bunny.net">
-        <link href="https://fonts.bunny.net/css?family=figtree:400,500,600&display=swap" rel="stylesheet" />
+        <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700&display=swap" rel="stylesheet" />
 
         <!-- Scripts -->
         @vite(['resources/css/app.css', 'resources/js/app.js'])
@@ -59,5 +71,17 @@
                 </div>
             </footer>
         </div>
+
+        <script>
+            if (!window.__zecovexThemeToggleBound) {
+                window.__zecovexThemeToggleBound = true;
+                document.addEventListener('click', function (e) {
+                    var btn = e.target.closest('.app-theme-toggle');
+                    if (!btn) return;
+                    var dark = document.documentElement.classList.toggle('dark');
+                    try { localStorage.setItem('theme', dark ? 'dark' : 'light'); } catch (err) {}
+                });
+            }
+        </script>
     </body>
 </html>
