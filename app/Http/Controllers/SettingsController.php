@@ -9,6 +9,7 @@ use App\Services\AuditLogger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
@@ -55,6 +56,11 @@ class SettingsController extends Controller
 
             // Self-report attendance fallback (terminal-down alternative).
             'self_attendance_enabled' => ['sometimes', Rule::in(['0', '1'])],
+
+            // Company logo (public disk, shown beside the company name in the
+            // sidebar). Optional — the form always posts the field.
+            'logo' => ['nullable', 'image', 'max:2048'],
+            'remove_logo' => ['sometimes', Rule::in(['0', '1'])],
         ]);
 
         $salaryKeys = [
@@ -139,11 +145,44 @@ class SettingsController extends Controller
             $attendanceChanges[$key] = $value;
         }
 
+        $previousLogoPath = $organization->logo_path;
+
         $organization->update([
             'name' => $data['name'],
             'timezone' => $data['timezone'],
             'settings' => $settings,
         ]);
+
+        // Logo file handling runs after the main update (same post-commit
+        // pattern as employee photos): a failed store never deletes the old
+        // file, and a replacement only drops the previous one once the new
+        // path is on disk.
+        $newLogoPath = $previousLogoPath;
+
+        if ($request->hasFile('logo')) {
+            $stored = $request->file('logo')->store('organizations/'.$organization->id, 'public');
+
+            // store() returns false on a write failure — keep the old logo
+            // (and the old file) when the new one never hit the disk.
+            if (is_string($stored) && $stored !== '') {
+                $newLogoPath = $stored;
+                $organization->update(['logo_path' => $stored]);
+            }
+        } elseif ($request->input('remove_logo') === '1' && $previousLogoPath !== null) {
+            $organization->update(['logo_path' => null]);
+            $newLogoPath = null;
+        }
+
+        $logoChanges = [];
+
+        if ($newLogoPath !== $previousLogoPath) {
+            if ($previousLogoPath !== null) {
+                Storage::disk('public')->delete($previousLogoPath);
+            }
+
+            $old['logo_path'] = $previousLogoPath;
+            $logoChanges['logo_path'] = $newLogoPath;
+        }
 
         $this->audit->log('organization.updated', $organization, $old, [
             'name' => $data['name'],
@@ -153,6 +192,7 @@ class SettingsController extends Controller
             ...$salaryChanges,
             ...$retentionChanges,
             ...$attendanceChanges,
+            ...$logoChanges,
         ]);
 
         return redirect()

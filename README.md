@@ -177,14 +177,16 @@ Open http://localhost:8000 — the entrypoint generates `APP_KEY`, caches config
 - **Salary change path surfaced**: changing a salary = adding a new effective-dated record via Payroll → Salary → History/Add → "Add salary record" (`salary.edit`, Company Admin by default); view-only users now see *why* the form is absent on the salary page, and the profile salary card links **Change salary** for editors
 - **Payroll/status polish**: the payslip Period field is a calendar date picker (any day of the month, normalized to `YYYY-MM` server-side), monthly-status snapshots and the profile Monthly tab never show months before the employee's joining month, and spec-notation markers like "(§28)" no longer leak into the UI
 
-### Post-Phase 27 — Light/dark app theme with nav toggle
-- **Both modes, one click**: every authenticated page now supports a true light **and** dark mode via moon/sun toggle buttons in the top nav (desktop next to the bell, mobile next to the hamburger); the choice persists in `localStorage.theme`, follows the OS `prefers-color-scheme` on first visit, and is applied before first paint (no flash) on both the app and login shells
-- **Soft & friendly theme patterns (Stripe-like, one global layer)**: cool blue-tinted neutrals (`#f6f9fc` surfaces, `#e3e8ee` hairlines), Stripe ink text scale (`#0a2540` headings), one-notch-rounders radii (10–16px), layered soft shadows with focus rings that compose correctly, inset inputs, and a blue primary button with a soft lift — applied uniformly through `resources/css/app.css`, so every page restyles at once without touching 100+ views; dark mode keeps its near-black remap, and the landing page keeps its own separate theme untouched
+### Post-Phase 27 — Light/dark toggle + full console redesign
+- **Left-sidebar console shell**: the top navigation is gone — every authenticated page now opens with a persistent white sidebar (expandable accordion sections with chevrons — People, Attendance ▸ Devices, Payroll, Reports, Settings — that auto-open on the active page, indented sub/sub-sub links, indigo active pills, gradient brand mark, off-canvas drawer below `xl`) and a slim solid top bar holding search, the theme toggle, the notification bell and the user menu; all links, permissions and routes are exactly the same as before
+- **New visual identity, same features**: violet/indigo accent (indigo→violet gradient primary buttons), violet-ink text on a `#f7f7fb` canvas with hairline panels, Plus Jakarta Sans, uppercase micro-labels, and a violet-tinted near-black dark mode — restyled through `resources/css/app.css` + the two layouts, with every page's content, permissions and flows untouched
+- **Both modes, one click**: moon/sun toggle in the top bar persists to `localStorage.theme`, follows the OS preference on first visit and applies before first paint (no flash) on app and login shells; the landing page keeps its own separate design and toggle
+- **Company logo**: a Company Admin uploads a logo from Company Settings (JPEG/PNG/WebP/SVG up to 2 MB, with a preview and a remove option); it renders beside the company name in the sidebar brand row for every user, with the gradient mark as the fallback when none is set
 
 ## Tests & checks
 
 ```bash
-php artisan test        # 500 tests
+php artisan test        # 505 tests
 composer format         # Pint code style (app tests routes database bootstrap resources)
 composer analyse        # Larastan level 5 (phpstan.neon + baseline)
 composer check          # format + analyse + test

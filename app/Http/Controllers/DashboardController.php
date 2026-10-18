@@ -70,6 +70,59 @@ class DashboardController extends Controller
             ->avg('total_work_minutes');
         $stats['avg_attendance_hours'] = $avgMinutes ? round($avgMinutes / 60, 1) : 0.0;
 
+        // 14-day "Performance" trend for the dashboard chart: present
+        // headcount per day (same statuses as present_today), oldest → today.
+        $trendStart = $today->copy()->subDays(13);
+        $trendRows = DailyAttendance::where('organization_id', $orgId)
+            ->whereBetween('date', [$trendStart->toDateString(), $today->toDateString()])
+            ->whereIn('status', $presentStatuses)
+            ->groupBy('date')
+            ->selectRaw('date, count(*) as present_count')
+            ->get();
+
+        $presentByDate = [];
+
+        foreach ($trendRows as $trendRow) {
+            $presentByDate[Carbon::parse($trendRow->date)->toDateString()] = (int) $trendRow->getAttribute('present_count');
+        }
+
+        $trendLabels = [];
+        $trendValues = [];
+
+        for ($i = 0; $i < 14; $i++) {
+            $trendDay = $trendStart->copy()->addDays($i);
+            $trendLabels[] = $trendDay->format('d M');
+            $trendValues[] = $presentByDate[$trendDay->toDateString()] ?? 0;
+        }
+
+        $trendWidth = 680;
+        $trendHeight = 210;
+        $trendPadY = 16;
+        $trendMax = max(1, max($trendValues));
+        $trendPoints = [];
+
+        foreach ($trendValues as $trendIndex => $trendValue) {
+            $trendPoints[] = [
+                $trendIndex * ($trendWidth / 13),
+                $trendHeight - $trendPadY - ($trendValue / $trendMax) * ($trendHeight - 2 * $trendPadY),
+            ];
+        }
+
+        $trendPath = $this->smoothPath($trendPoints);
+        $trendFirstX = $trendPoints[0][0];
+        $trendLastX = $trendPoints[count($trendPoints) - 1][0];
+
+        $trend = [
+            'labels' => $trendLabels,
+            'values' => $trendValues,
+            'max' => $trendMax,
+            'width' => $trendWidth,
+            'height' => $trendHeight,
+            'path' => $trendPath,
+            'area' => $trendPath.' L '.$trendLastX.' '.$trendHeight.' L '.$trendFirstX.' '.$trendHeight.' Z',
+            'last' => $trendPoints[count($trendPoints) - 1],
+        ];
+
         // §18 score/overtime widgets + §15 admin visibility of risk.
         $organization = $user->organization;
         $monthStart = $today->copy()->startOfMonth()->toDateString();
@@ -261,6 +314,14 @@ class DashboardController extends Controller
             ])->values()->all(),
         ];
 
+        // Bar rows for the dashboard's "headcount by department" card — the
+        // same already-computed totals, shaped for the view (top 5).
+        $deptBars = collect($deptTotals)->map(fn ($count, $key) => [
+            'name' => $deptLabel((string) $key),
+            'count' => (int) $count,
+            'pct' => (int) round((int) $count / max(1, (int) $stats['total_employees']) * 100),
+        ])->values()->take(5)->all();
+
         $drilldowns['active_employees'] = [
             'title' => 'Active employees by department',
             'rows' => collect($activeByDept)->map(fn ($count, $key) => [
@@ -386,7 +447,37 @@ class DashboardController extends Controller
                 ->get();
         }
 
-        return view('dashboard.admin', compact('stats', 'recentAudit', 'drilldowns'));
+        return view('dashboard.admin', compact('stats', 'recentAudit', 'drilldowns', 'trend', 'deptBars'));
+    }
+
+    /**
+     * Catmull-Rom → cubic Bézier: smooth line for the dashboard trend chart.
+     *
+     * @param  list<array{0: float, 1: float}>  $points
+     */
+    private function smoothPath(array $points): string
+    {
+        $first = $points[0];
+        $path = 'M '.round($first[0], 1).' '.round($first[1], 1);
+        $lastIndex = count($points) - 1;
+
+        for ($i = 0; $i < $lastIndex; $i++) {
+            $p0 = $points[max(0, $i - 1)];
+            $p1 = $points[$i];
+            $p2 = $points[$i + 1];
+            $p3 = $points[min($lastIndex, $i + 2)];
+
+            $cp1x = $p1[0] + ($p2[0] - $p0[0]) / 6;
+            $cp1y = $p1[1] + ($p2[1] - $p0[1]) / 6;
+            $cp2x = $p2[0] - ($p3[0] - $p1[0]) / 6;
+            $cp2y = $p2[1] - ($p3[1] - $p1[1]) / 6;
+
+            $path .= ' C '.round($cp1x, 1).' '.round($cp1y, 1).', '
+                .round($cp2x, 1).' '.round($cp2y, 1).', '
+                .round($p2[0], 1).' '.round($p2[1], 1);
+        }
+
+        return $path;
     }
 
     public function employee(

@@ -18,13 +18,35 @@
             </div>
 
             <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
-                <form action="{{ route('settings.update') }}" method="POST" class="space-y-4">
+                <form action="{{ route('settings.update') }}" method="POST" enctype="multipart/form-data" class="space-y-4">
                     @csrf
                     @method('PUT')
                     <div>
                         <x-input-label for="name" value="Company name" />
                         <x-text-input id="name" name="name" type="text" class="mt-1 block w-full" :value="old('name', $organization->name)" required />
                         <x-input-error :messages="$errors->get('name')" class="mt-2" />
+                    </div>
+
+                    <div class="border-t border-gray-200 pt-4">
+                        <h4 class="text-sm font-semibold text-gray-800">Company logo</h4>
+                        <p class="mt-1 text-xs text-gray-500">
+                            Shown beside the company name in the sidebar. JPEG, PNG, WebP or SVG up to 2 MB.
+                        </p>
+                        <div class="mt-3 flex items-center gap-4">
+                            @if ($organization->logo_path)
+                                <img src="{{ asset('storage/'.$organization->logo_path) }}" alt=""
+                                     class="h-10 w-10 shrink-0 rounded-lg object-cover ring-1 ring-gray-200" />
+                            @endif
+                            <input type="file" name="logo" accept="image/jpeg,image/png,image/webp,image/svg+xml"
+                                   class="block w-full text-sm text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-gray-700 hover:file:bg-gray-200" />
+                        </div>
+                        @if ($organization->logo_path)
+                            <label class="mt-2 inline-flex items-center gap-2 text-sm text-gray-700">
+                                <input type="checkbox" name="remove_logo" value="1" @checked(old('remove_logo') === '1') />
+                                Remove logo
+                            </label>
+                        @endif
+                        <x-input-error :messages="$errors->get('logo')" class="mt-2" />
                     </div>
                     <div>
                         <x-input-label for="timezone" value="Timezone" />

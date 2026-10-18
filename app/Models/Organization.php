@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['name', 'slug', 'timezone', 'status', 'settings'])]
+#[Fillable(['name', 'slug', 'timezone', 'status', 'settings', 'logo_path'])]
 class Organization extends Model
 {
     protected function casts(): array

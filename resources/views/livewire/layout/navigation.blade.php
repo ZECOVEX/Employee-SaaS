@@ -42,13 +42,13 @@ new class extends Component
     }
 
     /**
-     * Navigation tree (all roles): the top bar holds only the most important
-     * destinations — Dashboard, the section dropdowns (People, Attendance,
-     * Payroll, Reports, Settings) and Leave; everything else lives inside
-     * those dropdown sub-navs. Notifications is mobile_only (desktop uses
-     * the bell dropdown). Groups without visible children are dropped;
-     * groups with a single visible child collapse to that plain link (see
-     * prune()).
+     * Navigation tree (all roles): the left console sidebar renders every
+     * visible destination — Dashboard, the section groups (People,
+     * Attendance, Payroll, Reports, Settings) with their children, Leave
+     * and Notifications — while the slim top bar holds search, the theme
+     * toggle, the notification bell and the user menu. Groups without
+     * visible children are dropped; groups with a single visible child
+     * collapse to that plain link (see prune()).
      */
     public function links(): array
     {
@@ -121,8 +121,8 @@ new class extends Component
                 ], $myAttendance),
             ],
             ['label' => 'Leave', 'route' => 'leave.index', 'active' => 'leave*', 'can' => $can('leave.view')],
-            // Personal inbox — the bell dropdown covers the desktop; the
-            // mobile menu needs its own entry (§64).
+            // Personal inbox — the bell covers the top bar; the sidebar
+            // still lists it for every role (§64).
             ['label' => 'Notifications', 'route' => 'notifications.index', 'active' => 'notifications.*', 'can' => true, 'mobile_only' => true],
             // Time & pay: self-service overtime, approvals and salary.
             [
@@ -172,7 +172,7 @@ new class extends Component
     /**
      * Drop items the user cannot see, collapse a group whose only visible
      * child is a plain link into that link, and remove empty groups so the
-     * bar stays flat where there is nothing to nest.
+     * sidebar stays flat where there is nothing to nest.
      */
     private function prune(array $items): array
     {
@@ -207,80 +207,107 @@ new class extends Component
     }
 }; ?>
 
-<nav x-data="{ open: false }" class="bg-white border-b border-gray-100">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex justify-between h-16">
-            <div class="flex">
-                <div class="shrink-0 flex items-center">
-                    <a href="{{ route('dashboard') }}" wire:navigate class="font-semibold text-indigo-600 whitespace-nowrap">
-                        {{ auth()->user()?->organization?->name ?? config('app.name') }}
-                    </a>
-                </div>
+<div class="contents" x-data="{ sidebarOpen: false }">
+    {{-- Mobile backdrop (the sidebar slides over the page below xl). --}}
+    <div x-show="sidebarOpen" style="display: none;" x-transition.opacity
+         class="fixed inset-0 z-[45] bg-slate-950/50 xl:hidden"
+         @click="sidebarOpen = false" aria-hidden="true"></div>
 
-                <div class="hidden space-x-2 xl:-my-px xl:ms-10 xl:flex">
-                    @foreach (array_filter($this->links(), fn ($link) => empty($link['mobile_only'])) as $link)
-                        @include('livewire.layout.partials.desktop-item', ['item' => $link])
-                    @endforeach
-                </div>
-            </div>
+    {{-- Left console sidebar --}}
+    <aside id="app-sidebar"
+           class="app-sidebar fixed inset-y-0 left-0 z-50 flex w-64 -translate-x-full flex-col transition-transform duration-200 ease-out xl:translate-x-0 xl:transition-none"
+           :class="sidebarOpen ? '!translate-x-0' : ''">
+        <div class="flex h-16 shrink-0 items-center gap-2.5 border-b border-gray-100 px-5">
+            @if (auth()->user()?->organization?->logo_path)
+                <img src="{{ asset('storage/'.auth()->user()->organization->logo_path) }}"
+                     alt="" aria-hidden="true" width="26" height="26" class="app-brand-logo" />
+            @else
+                <span class="app-brand-mark" aria-hidden="true"></span>
+            @endif
+            <a id="app-brand" href="{{ route('dashboard') }}" wire:navigate
+               class="font-semibold text-indigo-600 whitespace-nowrap">{{ auth()->user()?->organization?->name ?? config('app.name') }}</a>
+            <button type="button" class="app-sidebar-close ms-auto xl:hidden" @click="sidebarOpen = false"
+                    aria-label="Close navigation" title="Close">
+                <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
 
-            <div class="hidden sm:flex sm:items-center sm:ms-6">
-                @if (auth()->user()?->canPermission('employees.view') || auth()->user()?->canPermission('nfc.view'))
-                    <div class="relative me-2"
-                         x-data="{
-                             q: '',
-                             results: null,
-                             open: false,
-                             async search() {
-                                 if (this.q.trim().length < 2) {
-                                     this.results = null;
-                                     this.open = false;
+        <nav class="app-sidebar-nav" aria-label="Primary">
+            @foreach ($this->links() as $link)
+                @include('livewire.layout.partials.sidebar-item', ['item' => $link])
+            @endforeach
+        </nav>
+    </aside>
 
-                                     return;
-                                 }
-                                 const response = await fetch('{{ route('search.index') }}?q=' + encodeURIComponent(this.q), { headers: { 'Accept': 'application/json' } });
-                                 if (response.ok) {
-                                     this.results = await response.json();
-                                     this.open = true;
-                                 }
+    {{-- Slim top bar --}}
+    <header class="app-topbar fixed top-0 right-0 left-0 z-30 xl:left-64">
+        <div class="flex h-16 items-center gap-3 px-4 sm:px-6">
+            <button type="button" class="app-icon-btn xl:hidden" @click="sidebarOpen = ! sidebarOpen"
+                    aria-label="Open navigation" title="Menu">
+                <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+            </button>
+
+            @if (auth()->user()?->canPermission('employees.view') || auth()->user()?->canPermission('nfc.view'))
+                <div class="relative hidden sm:block"
+                     x-data="{
+                         q: '',
+                         results: null,
+                         open: false,
+                         async search() {
+                             if (this.q.trim().length < 2) {
+                                 this.results = null;
+                                 this.open = false;
+
+                                 return;
                              }
-                         }"
-                         @click.outside="open = false">
-                        <input type="search" x-model="q" @input.debounce.300ms="search()" @focus="open = !!results"
-                               placeholder="Search…" aria-label="Search employees and cards"
-                               class="w-40 lg:w-56 border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm text-sm" />
-                        <div x-show="open && results" style="display: none;"
-                             class="absolute end-0 top-full z-50 mt-1 w-80 max-h-96 overflow-auto rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5">
-                            <template x-if="results && (results.employees.length > 0 || results.cards.length > 0)">
-                                <div>
-                                    <template x-for="employee in results.employees" :key="'employee-' + employee.id">
-                                        <a :href="employee.url" wire:navigate @click="open = false"
-                                           class="block px-4 py-2 hover:bg-gray-50">
-                                            <span class="text-sm font-medium text-gray-800" x-text="employee.name"></span>
-                                            <span class="ms-2 text-xs text-gray-400" x-text="employee.code"></span>
-                                            <span class="block text-xs text-gray-500">
-                                                <span x-text="employee.department || ''"></span><template x-if="employee.designation"><span> &middot; <span x-text="employee.designation"></span></span></template>
-                                            </span>
-                                        </a>
-                                    </template>
-                                    <template x-for="card in results.cards" :key="'card-' + card.token">
-                                        <a :href="card.url" wire:navigate @click="open = false"
-                                           class="block px-4 py-2 hover:bg-gray-50 border-t border-gray-100">
-                                            <span class="text-sm font-medium text-gray-800" x-text="card.token"></span>
-                                            <span class="ms-2 text-xs uppercase text-gray-400" x-text="card.status"></span>
-                                            <span class="block text-xs text-gray-500" x-text="card.employee || 'Unassigned'"></span>
-                                        </a>
-                                    </template>
-                                </div>
-                            </template>
-                            <template x-if="results && results.employees.length === 0 && results.cards.length === 0">
-                                <div class="px-4 py-3 text-sm text-gray-500">No matches.</div>
-                            </template>
-                        </div>
+                             const response = await fetch('{{ route('search.index') }}?q=' + encodeURIComponent(this.q), { headers: { 'Accept': 'application/json' } });
+                             if (response.ok) {
+                                 this.results = await response.json();
+                                 this.open = true;
+                             }
+                         }
+                     }"
+                     @click.outside="open = false">
+                    <input type="search" x-model="q" @input.debounce.300ms="search()" @focus="open = !!results"
+                           placeholder="Search&hellip;" aria-label="Search employees and cards"
+                           class="app-search-input w-44 lg:w-72 rounded-md text-sm" />
+                    <div x-show="open && results" style="display: none;"
+                         class="absolute end-0 top-full z-50 mt-2 w-80 max-h-96 overflow-auto rounded-lg bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5">
+                        <template x-if="results && (results.employees.length > 0 || results.cards.length > 0)">
+                            <div>
+                                <template x-for="employee in results.employees" :key="'employee-' + employee.id">
+                                    <a :href="employee.url" wire:navigate @click="open = false"
+                                       class="block px-4 py-2 hover:bg-gray-50">
+                                        <span class="text-sm font-medium text-gray-800" x-text="employee.name"></span>
+                                        <span class="ms-2 text-xs text-gray-400" x-text="employee.code"></span>
+                                        <span class="block text-xs text-gray-500">
+                                            <span x-text="employee.department || ''"></span><template x-if="employee.designation"><span> &middot; <span x-text="employee.designation"></span></span></template>
+                                        </span>
+                                    </a>
+                                </template>
+                                <template x-for="card in results.cards" :key="'card-' + card.token">
+                                    <a :href="card.url" wire:navigate @click="open = false"
+                                       class="block px-4 py-2 hover:bg-gray-50 border-t border-gray-100">
+                                        <span class="text-sm font-medium text-gray-800" x-text="card.token"></span>
+                                        <span class="ms-2 text-xs uppercase text-gray-400" x-text="card.status"></span>
+                                        <span class="block text-xs text-gray-500" x-text="card.employee || 'Unassigned'"></span>
+                                    </a>
+                                </template>
+                            </div>
+                        </template>
+                        <template x-if="results && results.employees.length === 0 && results.cards.length === 0">
+                            <div class="px-4 py-3 text-sm text-gray-500">No matches.</div>
+                        </template>
                     </div>
-                @endif
+                </div>
+            @endif
 
-                <button type="button" class="app-theme-toggle me-2 inline-flex items-center px-2 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-gray-500 bg-white hover:text-gray-700 focus:outline-none transition ease-in-out duration-150"
+            <div class="ms-auto flex items-center gap-1 sm:gap-2">
+                <button type="button" class="app-theme-toggle inline-flex items-center justify-center p-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 focus:outline-none transition duration-150 ease-in-out"
                         title="Toggle dark mode" aria-label="Toggle dark mode">
                     <svg class="h-5 w-5 dark:hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
@@ -292,13 +319,13 @@ new class extends Component
 
                 <x-dropdown align="right" width="80">
                     <x-slot name="trigger">
-                        <button class="relative me-2 inline-flex items-center px-2 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-gray-500 bg-white hover:text-gray-700 focus:outline-none transition ease-in-out duration-150"
+                        <button class="relative me-1 inline-flex items-center justify-center p-2 border border-transparent rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 focus:outline-none transition ease-in-out duration-150"
                                 title="Notifications">
                             <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
                             </svg>
                             @if ($this->unreadNotificationCount() > 0)
-                                <span class="absolute -top-1 -right-1 inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-none">
+                                <span class="absolute -top-1 -right-1 inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-violet-500 text-white text-[10px] font-bold leading-none">
                                     {{ $this->unreadNotificationCount() > 99 ? '99+' : $this->unreadNotificationCount() }}
                                 </span>
                             @endif
@@ -328,9 +355,9 @@ new class extends Component
 
                 <x-dropdown align="right" width="48">
                     <x-slot name="trigger">
-                        <button class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-gray-500 bg-white hover:text-gray-700 focus:outline-none transition ease-in-out duration-150">
+                        <button class="inline-flex items-center px-2 sm:px-3 py-2 border border-transparent rounded-md text-sm font-medium text-gray-700 hover:bg-gray-100 focus:outline-none transition ease-in-out duration-150">
                             <x-avatar size="sm" class="me-2" />
-                            <div x-data="{{ json_encode(['name' => auth()->user()->name]) }}" x-text="name" x-on:profile-updated.window="name = $event.detail.name"></div>
+                            <div class="hidden sm:block" x-data="{{ json_encode(['name' => auth()->user()->name]) }}" x-text="name" x-on:profile-updated.window="name = $event.detail.name"></div>
                             @if ($status = $this->employmentStatus())
                                 <span class="ms-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold {{ $status === 'terminated' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
                                     {{ ucfirst($status) }}
@@ -356,59 +383,6 @@ new class extends Component
                     </x-slot>
                 </x-dropdown>
             </div>
-
-            <div class="-me-2 flex items-center xl:hidden">
-                <button type="button" class="app-theme-toggle inline-flex items-center justify-center p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none focus:bg-gray-100 focus:text-gray-500 transition duration-150 ease-in-out"
-                        title="Toggle dark mode" aria-label="Toggle dark mode">
-                    <svg class="h-5 w-5 dark:hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
-                    </svg>
-                    <svg class="h-5 w-5 hidden dark:block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" />
-                    </svg>
-                </button>
-                <button @click="open = ! open" class="inline-flex items-center justify-center p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none focus:bg-gray-100 focus:text-gray-500 transition duration-150 ease-in-out">
-                    <svg class="h-6 w-6" stroke="currentColor" fill="none" viewBox="0 0 24 24">
-                        <path :class="{'hidden': open, 'inline-flex': ! open }" class="inline-flex" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-                        <path :class="{'hidden': ! open, 'inline-flex': open }" class="hidden" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                </button>
-            </div>
         </div>
-    </div>
-
-    <div :class="{'block': open, 'hidden': ! open}" class="hidden xl:hidden">
-        <div class="pt-2 pb-3 space-y-1">
-            @foreach ($this->links() as $link)
-                @include('livewire.layout.partials.mobile-item', ['item' => $link])
-            @endforeach
-        </div>
-
-        <div class="pt-4 pb-1 border-t border-gray-200">
-            <div class="px-4 flex items-center gap-3">
-                <x-avatar size="md" />
-                <div>
-                    <div class="font-medium text-base text-gray-800">
-                        {{ auth()->user()->name }}
-                        @if ($status = $this->employmentStatus())
-                            <span class="ms-1 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold {{ $status === 'terminated' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
-                                {{ ucfirst($status) }}
-                            </span>
-                        @endif
-                    </div>
-                    <div class="font-medium text-sm text-gray-500">{{ auth()->user()->email }}</div>
-                </div>
-            </div>
-            <div class="mt-3 space-y-1">
-                <x-responsive-nav-link :href="route('profile')" wire:navigate>
-                    {{ __('Profile') }}
-                </x-responsive-nav-link>
-                <button wire:click="logout" class="w-full text-start">
-                    <x-responsive-nav-link>
-                        {{ __('Log Out') }}
-                    </x-responsive-nav-link>
-                </button>
-            </div>
-        </div>
-    </div>
-</nav>
+    </header>
+</div>
